@@ -1088,6 +1088,8 @@ pre {
   margin: 30px 0;
 }
 .modal-overlay {
+  overscroll-behavior: none;
+  overflow: hidden;
   position: fixed;
   inset: 0;
   background: #22222260;
@@ -1099,6 +1101,8 @@ pre {
   padding: 24px;
 }
 .modal {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   width: 650px;
   max-width: 100%;
   max-height: 90vh;

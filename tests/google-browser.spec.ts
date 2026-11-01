@@ -764,3 +764,45 @@ test("mobile transaction toolbar keeps detailed filters tucked away and tag sear
     "sheet-tag-3",
   );
 });
+
+for (const width of [390, 1440]) {
+  test(`dialogs lock background scroll and restore the page position at ${width}px`, async ({
+    page,
+  }) => {
+    await mockGoogle(page);
+    await page.setViewportSize({ width, height: 450 });
+    await login(page);
+    await page.evaluate(() => window.scrollTo(0, 180));
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(0);
+    // Open without the automation scrolling the page to bring the button into view.
+    await page
+      .getByRole("button", { name: "Add transaction", exact: true })
+      .evaluate((button: HTMLButtonElement) => button.click());
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(page.locator("body")).toHaveCSS("position", "fixed");
+    await expect(page.locator("body")).toHaveCSS("top", `-${before}px`);
+    const position = await page.evaluate(() => window.scrollY);
+    await page.mouse.move(2, 100);
+    await page.mouse.wheel(0, 600);
+    expect(await page.evaluate(() => window.scrollY)).toBe(position);
+    await dialog.hover();
+    await page.mouse.wheel(0, 500);
+    await expect
+      .poll(() => dialog.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(position);
+    await dialog
+      .getByRole("button", { name: "Close form", exact: true })
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveCSS("position", "fixed");
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
+    await page.mouse.move(width / 2, 400);
+    await page.mouse.wheel(0, 300);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(before);
+  });
+}

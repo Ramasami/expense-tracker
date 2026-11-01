@@ -3,6 +3,7 @@ import Analytics from "./analytics";
 import Receipts from "./receipts";
 import TagSelect from "./tag-select";
 import { usePullToRefresh } from "./pull-to-refresh";
+import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 import {
   readSheetCache,
   writeSheetCache,
@@ -360,6 +361,7 @@ export default function Home() {
       setConnecting(false);
     }
   }
+  useDialogScrollLock(!!(modal || detail || conflict));
   const pull = usePullToRefresh(
     () => refreshSheet(),
     !!googleSession && dataReady && !modal && !detail && !conflict && !saving,
