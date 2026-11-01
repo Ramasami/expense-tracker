@@ -1824,3 +1824,70 @@ html {
     grid-column: 1 / -1;
   }
 }
+
+.tag-picker {
+  position: relative;
+}
+.tag-combobox {
+  position: relative;
+}
+.tag-combobox input {
+  padding-right: 38px;
+}
+.tag-combobox .tag-toggle {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.tag-options {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 8px 24px #0002;
+  padding: 5px;
+}
+.tag-options button {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+.tag-options button:hover,
+.tag-options button.highlighted {
+  background: var(--soft);
+}
+.tag-options button[aria-selected="true"] {
+  color: var(--teal);
+  font-weight: 600;
+}
+.tag-options p {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.transaction-filters .tag-picker {
+  grid-row: auto;
+}

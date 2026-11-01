@@ -124,8 +124,9 @@ test("transaction accounts accept text; search, combined filters and sorting use
   await page.getByLabel("Amount (₹)", { exact: true }).fill("500");
   await page.getByLabel("Description / merchant").fill("Zebra shop");
   await page
-    .getByLabel("Expense tag", { exact: true })
-    .selectOption("sheet-tag-2");
+    .getByRole("combobox", { name: "Expense tag", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Groceries", exact: true }).click();
   await page
     .getByLabel("From account", { exact: true })
     .fill("My current account");
@@ -698,13 +699,21 @@ test("mobile transaction toolbar keeps detailed filters tucked away and tag sear
   await expect(page.getByLabel("Sort transactions")).toBeVisible();
   await expect(page.getByLabel("Account filter")).toHaveCount(0);
   await page.getByRole("button", { name: /^Filters/ }).click();
-  await page.getByLabel("Search tag filters", { exact: true }).fill("gRoC");
-  await expect(
-    page.getByLabel("Tag filter", { exact: true }).locator("option"),
-  ).toHaveText(["All categories", "Groceries"]);
-  await page
-    .getByLabel("Tag filter", { exact: true })
-    .selectOption("sheet-tag-2");
+  const tagFilter = page.getByRole("combobox", {
+    name: "Tag filter",
+    exact: true,
+  });
+  await tagFilter.click();
+  await expect(page.getByRole("listbox").getByRole("option")).toHaveText([
+    "All categories",
+    "Groceries",
+    "Travel",
+  ]);
+  await tagFilter.fill("gRoC");
+  await expect(page.getByRole("listbox").getByRole("option")).toHaveText([
+    "Groceries",
+  ]);
+  await page.getByRole("option", { name: "Groceries", exact: true }).click();
   await page.getByRole("button", { name: /^Filters/ }).click();
   await expect(page.getByRole("button", { name: /^Filters/ })).toContainText(
     "1",
@@ -718,22 +727,40 @@ test("mobile transaction toolbar keeps detailed filters tucked away and tag sear
     .getByRole("button", { name: "Add transaction", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
-  await dialog
-    .getByLabel("Search expense tags", { exact: true })
-    .fill("travel");
-  await expect(
-    dialog.getByLabel("Expense tag", { exact: true }).locator("option"),
-  ).toHaveText(["Select…", "Travel"]);
-  await dialog
-    .getByLabel("Expense tag", { exact: true })
-    .selectOption("sheet-tag-3");
-  await dialog
-    .getByLabel("Search expense tags", { exact: true })
-    .fill("no-such-tag");
-  await expect(dialog.getByLabel("Expense tag", { exact: true })).toHaveValue(
+  const tag = dialog.getByRole("combobox", {
+    name: "Expense tag",
+    exact: true,
+  });
+  await tag.click();
+  await expect(dialog.getByRole("listbox").getByRole("option")).toHaveText([
+    "Select…",
+    "Groceries",
+    "Travel",
+  ]);
+  await tag.fill("travel");
+  await expect(dialog.getByRole("listbox").getByRole("option")).toHaveText([
+    "Travel",
+  ]);
+  await tag.press("ArrowDown");
+  await tag.press("Enter");
+  await expect(tag).toHaveValue("Travel");
+  await expect(dialog.locator('input[name="tagId"]')).toHaveValue(
     "sheet-tag-3",
   );
+  await tag.click();
+  await expect(dialog.getByRole("listbox").getByRole("option")).toHaveText([
+    "Select…",
+    "Groceries",
+    "Travel",
+  ]);
+  await tag.fill("no-such-tag");
+  await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(0);
   await expect(dialog.getByRole("status")).toContainText(
     "No matching expense tags",
+  );
+  await tag.press("Escape");
+  await expect(tag).toHaveValue("Travel");
+  await expect(dialog.locator('input[name="tagId"]')).toHaveValue(
+    "sheet-tag-3",
   );
 });
