@@ -1,6 +1,8 @@
 "use client";
 import Analytics from "./analytics";
 import Receipts from "./receipts";
+import AmountField from "./amount-field";
+import { amountFromExpression } from "../lib/amount-expression";
 import TagSelect from "./tag-select";
 import { usePullToRefresh } from "./pull-to-refresh";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
@@ -154,6 +156,7 @@ export default function Home() {
       entity: string;
       record: any;
       op: string;
+      pending?: any;
     } | null>(null),
     [saving, setSaving] = useState(false),
     [conflict, setConflict] = useState<any>(null),
@@ -695,25 +698,39 @@ export default function Home() {
     e.preventDefault();
     if (!modal) return;
     const values = Object.fromEntries(new FormData(e.currentTarget).entries());
-    const record = { ...modal.record, ...values };
-    if (["transactions", "recurring"].includes(modal.entity)) {
-      for (const field of ["account", "toAccount"]) {
-        const name = String(record[field] || "").trim();
-        record[field] =
-          data.accounts.find(
-            (account) =>
-              account.status === "Active" &&
-              (account.id === name ||
-                account.name.toLowerCase() === name.toLowerCase()),
-          )?.id || name;
+    const record = modal.pending || { ...modal.record, ...values };
+    if (staleRef.current) {
+      await refreshSheet();
+      if (staleRef.current || !currentGoogleSession()) return;
+    }
+    if (!modal.pending) {
+      if (["transactions", "recurring"].includes(modal.entity)) {
+        for (const field of ["account", "toAccount"]) {
+          const name = String(record[field] || "").trim();
+          record[field] =
+            dataRef.current.accounts.find(
+              (account) =>
+                account.status === "Active" &&
+                (account.id === name ||
+                  account.name.toLowerCase() === name.toLowerCase()),
+            )?.id || name;
+        }
+      }
+      try {
+        if ("amount" in record)
+          record.amount = amountFromExpression(record.amount);
+        for (const key of ["openingBalance", "funded", "contribution"])
+          if (key in record) record[key] = Number(record[key]);
+      } catch (error) {
+        setError((error as Error).message);
+        return;
       }
     }
-    for (const key of ["amount", "openingBalance", "funded", "contribution"])
-      if (key in record) record[key] = Number(record[key]);
     if (
       modal.entity === "transactions" &&
       !record.id &&
-      data.transactions.some(
+      !modal.pending &&
+      dataRef.current.transactions.some(
         (r) =>
           r.status !== "Deleted" &&
           r.date === record.date &&
@@ -723,6 +740,9 @@ export default function Home() {
       !confirm("A matching transaction already exists. Save another?")
     )
       return;
+    setModal((current) =>
+      current?.op === modal.op ? { ...current, pending: record } : current,
+    );
     if (
       await mutate(
         modal.entity,
@@ -2705,25 +2725,20 @@ export default function Home() {
               </div>
               <button
                 aria-label="Close form"
-                disabled={saving || setup || syncing}
+                disabled={saving}
                 onClick={() => setModal(null)}
               >
                 <X />
               </button>
             </div>
             <form onSubmit={save}>
-              <div className="form-grid">
+              <fieldset
+                className="form-grid"
+                disabled={saving || !!modal.pending}
+              >
                 {modal.entity === "transactions" ? (
                   <>
-                    <Field
-                      label="Amount (₹)"
-                      name="amount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={modal.record.amount}
-                      required
-                    />
+                    <AmountField value={modal.record.amount} />
                     <Field
                       label="Date"
                       name="date"
@@ -2891,18 +2906,13 @@ export default function Home() {
                       </>
                     ) : (
                       <>
-                        <Field
+                        <AmountField
                           label={
                             modal.entity === "goals"
                               ? "Target amount (₹)"
                               : "Amount (₹)"
                           }
-                          name="amount"
-                          type="number"
-                          min="0.01"
-                          step="0.01"
                           value={modal.record.amount}
-                          required
                         />
                         <Select
                           label="Person"
@@ -3022,7 +3032,14 @@ export default function Home() {
                     )}
                   </>
                 )}
-              </div>
+              </fieldset>
+              {modal.pending && !saving && (
+                <p className="pending-save-help">
+                  Your entries are kept. Retry checks the same save with Google
+                  Sheets; the fields stay locked until it is confirmed. You can
+                  also cancel.
+                </p>
+              )}
               {error && (
                 <p className="form-error" role="alert">
                   {error}
@@ -3035,21 +3052,22 @@ export default function Home() {
                 </small>
                 <button
                   type="button"
-                  disabled={saving || setup || syncing}
+                  disabled={saving}
                   onClick={() => setModal(null)}
                 >
                   Cancel
                 </button>
-                <button
-                  className="primary"
-                  disabled={saving || setup || syncing}
-                >
+                <button className="primary" disabled={saving || syncing}>
                   {saving
                     ? "Saving…"
-                    : "Save " +
-                      (modal.entity === "transactions"
-                        ? "transaction"
-                        : "changes")}
+                    : syncing
+                      ? "Reconnecting…"
+                      : modal.pending
+                        ? "Retry save"
+                        : "Save " +
+                          (modal.entity === "transactions"
+                            ? "transaction"
+                            : "changes")}
                 </button>
               </div>
             </form>

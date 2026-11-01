@@ -9,6 +9,7 @@ export async function mockGoogle(page: Page) {
     publicRequests: 0,
     failReads: false,
     failWrites: false,
+    dropWriteResponse: false,
     email: "ramasami.official@gmail.com",
   };
   await page.addInitScript(() => {
@@ -58,6 +59,14 @@ export async function mockGoogle(page: Page) {
       headers: { Authorization: req.headers()["authorization"] || "" },
       body: req.postData() || undefined,
     });
+    if (
+      state.dropWriteResponse &&
+      req.method() !== "GET" &&
+      f.grids["Audit Log"].length > 1
+    ) {
+      state.dropWriteResponse = false;
+      return route.abort("failed");
+    }
     await route.fulfill({
       status: response.status,
       contentType: "application/json",

@@ -2066,3 +2066,39 @@ html {
     font-size: 10px;
   }
 }
+fieldset.form-grid {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.pending-save-help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 18px 0;
+}
+.amount-help {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.amount-help.invalid {
+  color: var(--red);
+}
+@media (pointer: coarse) {
+  html {
+    touch-action: pan-x pan-y;
+  }
+  input,
+  select,
+  textarea,
+  .field input,
+  .field select,
+  .transaction-toolbar input,
+  .transaction-toolbar select,
+  .transaction-filters input,
+  .transaction-filters select {
+    font-size: 16px;
+  }
+}

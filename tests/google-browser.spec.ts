@@ -870,3 +870,136 @@ test("transaction cards fit small screens, wrap details and keep selection and a
     fullPage: true,
   });
 });
+
+for (const lostResponse of [false, true])
+  test(`a ${lostResponse ? "lost committed response" : "failed write"} keeps a usable form and retries the same operation once`, async ({
+    page,
+  }) => {
+    const { f, state } = await mockGoogle(page);
+    await login(page);
+    await page
+      .getByRole("button", { name: "Add transaction", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Amount (₹)", { exact: true }).fill("123+345+13*2");
+    await expect(dialog.locator(".amount-help")).toContainText("494");
+    await dialog
+      .getByLabel("Description / merchant", { exact: true })
+      .fill("Recovery calculation");
+    await dialog
+      .getByRole("combobox", { name: "Expense tag", exact: true })
+      .click();
+    await dialog
+      .getByRole("option", { name: "Groceries", exact: true })
+      .click();
+    state.failWrites = !lostResponse;
+    state.dropWriteResponse = lostResponse;
+    await dialog
+      .getByRole("button", { name: "Save transaction", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      dialog.getByRole("button", { name: "Close form", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      dialog.getByRole("button", { name: "Retry save", exact: true }),
+    ).toBeEnabled();
+    await expect(dialog.getByLabel("Amount (₹)", { exact: true })).toHaveValue(
+      "123+345+13*2",
+    );
+    await expect(
+      dialog.getByLabel("Amount (₹)", { exact: true }),
+    ).toBeDisabled();
+    state.failWrites = false;
+    // A retry that still cannot sync must remain dismissible and must not write.
+    state.failReads = true;
+    await dialog
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", { name: "Retry save", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      dialog.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeEnabled();
+    state.failReads = false;
+    let confirmations = 0;
+    page.on("dialog", async (message) => {
+      confirmations++;
+      await message.dismiss();
+    });
+    await dialog
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    expect(confirmations).toBe(0);
+    const rows = f.grids["Expense Ledger"].filter(
+      (row) => row[1] === "Recovery calculation",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0][4]).toBe(494);
+  });
+
+test("touch devices keep a fixed viewport and block pinch gestures without blocking a single finger", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  await mockGoogle(page);
+  await login(page);
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    "content",
+    /maximum-scale=1.*user-scalable=no/,
+  );
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  await expect(page.getByLabel("Amount (₹)", { exact: true })).toHaveCSS(
+    "font-size",
+    "16px",
+  );
+  const gestures = await page.evaluate(() => {
+    const pinch = new TouchEvent("touchmove", {
+      cancelable: true,
+      bubbles: true,
+      touches: [
+        new Touch({
+          identifier: 1,
+          target: document.body,
+          clientX: 10,
+          clientY: 20,
+        }),
+        new Touch({
+          identifier: 2,
+          target: document.body,
+          clientX: 40,
+          clientY: 20,
+        }),
+      ],
+    });
+    document.dispatchEvent(pinch);
+    const single = new TouchEvent("touchmove", {
+      cancelable: true,
+      bubbles: true,
+      touches: [
+        new Touch({
+          identifier: 1,
+          target: document.body,
+          clientX: 10,
+          clientY: 20,
+        }),
+      ],
+    });
+    document.dispatchEvent(single);
+    return { pinch: pinch.defaultPrevented, single: single.defaultPrevented };
+  });
+  expect(gestures).toEqual({ pinch: true, single: false });
+  await context.close();
+});
