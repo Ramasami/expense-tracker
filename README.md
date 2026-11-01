@@ -32,7 +32,7 @@ Only confirmed Google reads/writes update the financial cache. A failed save nev
 
 Transactions write to **Expense Ledger**; tags come only from **Expense Tags**. Historical ledger categories missing from that list remain readable but are not offered as new tags. From account and To account are text inputs. Entering an existing managed account's name links its ID for balance calculations; other names remain free text. Transfers require two different accounts.
 
-Transactions support dedicated search, date and person filters, tag/type/account/payment/receipt filters, minimum/maximum amounts, and date/amount/merchant sorting. Account filtering matches both the source and destination. Reset clears the transaction filters and returns to All Time / Combined.
+Transactions show a compact search/sort toolbar with a collapsible **Filters** panel and an active-filter count. Expense-tag dropdowns include case-insensitive search and continue accepting only Sheet-defined tags. Transactions support dedicated search, date and person filters, tag/type/account/payment/receipt filters, minimum/maximum amounts, and date/amount/merchant sorting. Account filtering matches both the source and destination. Reset clears the transaction filters and returns to All Time / Combined.
 
 The dashboard opens in **All Time** and shows **Total savings = income − expenses**, including money contributed to investments. Net cash movement additionally subtracts investment contributions. Transfers do not inflate income or expenses.
 

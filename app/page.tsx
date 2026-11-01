@@ -1,6 +1,7 @@
 "use client";
 import Analytics from "./analytics";
 import Receipts from "./receipts";
+import TagSelect from "./tag-select";
 import { usePullToRefresh } from "./pull-to-refresh";
 import {
   readSheetCache,
@@ -24,6 +25,7 @@ import { report, budgetSpent } from "../lib/reports";
 import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Wallet,
+  SlidersHorizontal,
   LayoutDashboard,
   ArrowLeftRight,
   ChartNoAxesCombined,
@@ -155,6 +157,7 @@ export default function Home() {
     [saving, setSaving] = useState(false),
     [conflict, setConflict] = useState<any>(null),
     [deleted, setDeleted] = useState(false),
+    [filtersOpen, setFiltersOpen] = useState(false),
     [tagFilter, setTagFilter] = useState(""),
     [typeFilter, setTypeFilter] = useState(""),
     [accountFilter, setAccountFilter] = useState(""),
@@ -1880,99 +1883,13 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
-                  <div className="transaction-filters">
+                  <div className="transaction-toolbar">
                     <input
                       aria-label="Search transactions"
                       type="search"
                       placeholder="Search merchant, notes, tag or account"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <select
-                      aria-label="Tag filter"
-                      value={tagFilter}
-                      onChange={(e) => {
-                        setTagFilter(e.target.value);
-                        setOffset(0);
-                      }}
-                    >
-                      <option value="">All categories</option>
-                      {data.tags.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="Type filter"
-                      value={typeFilter}
-                      onChange={(e) => {
-                        setTypeFilter(e.target.value);
-                        setOffset(0);
-                      }}
-                    >
-                      <option value="">All types</option>
-                      {["Income", "Expense", "Investment", "Transfer"].map(
-                        (t) => (
-                          <option key={t}>{t}</option>
-                        ),
-                      )}
-                    </select>
-                    <select
-                      aria-label="Account filter"
-                      value={accountFilter}
-                      onChange={(e) => {
-                        setAccountFilter(e.target.value);
-                        setOffset(0);
-                      }}
-                    >
-                      <option value="">All accounts</option>
-                      {accountOptions.map((value) => (
-                        <option key={value} value={value}>
-                          {accountName(value)}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="Payment method filter"
-                      value={paymentFilter}
-                      onChange={(e) => setPaymentFilter(e.target.value)}
-                    >
-                      <option value="">All payment methods</option>
-                      {Array.from(
-                        new Set(
-                          data.transactions
-                            .map((row) => row.payment)
-                            .filter(Boolean),
-                        ),
-                      )
-                        .sort()
-                        .map((value) => (
-                          <option key={value}>{value}</option>
-                        ))}
-                    </select>
-                    <select
-                      aria-label="Receipt filter"
-                      value={receiptFilter}
-                      onChange={(e) => setReceiptFilter(e.target.value)}
-                    >
-                      <option value="">All receipts</option>
-                      <option value="with">With receipts</option>
-                      <option value="without">Without receipts</option>
-                    </select>
-                    <input
-                      aria-label="Minimum amount"
-                      type="number"
-                      placeholder="Min ₹"
-                      value={min}
-                      onChange={(e) => setMin(e.target.value)}
-                    />
-                    <input
-                      aria-label="Maximum amount"
-                      type="number"
-                      placeholder="Max ₹"
-                      value={max}
-                      onChange={(e) => setMax(e.target.value)}
                     />
                     <select
                       aria-label="Sort transactions"
@@ -1987,23 +1904,166 @@ export default function Home() {
                       <option value="merchant-desc">Merchant Z–A</option>
                     </select>
                     <button
-                      onClick={() => {
-                        setTagFilter("");
-                        setAccountFilter("");
-                        setTypeFilter("");
-                        setPaymentFilter("");
-                        setReceiptFilter("");
-                        setSearch("");
-                        setPerson("Combined");
-                        setPeriod("All Time");
-                        setSort("newest");
-                        setMin("");
-                        setMax("");
-                      }}
+                      className={
+                        filtersOpen ? "filter-toggle active" : "filter-toggle"
+                      }
+                      aria-expanded={filtersOpen}
+                      aria-controls="transaction-filter-panel"
+                      onClick={() => setFiltersOpen(!filtersOpen)}
                     >
-                      Reset
+                      <SlidersHorizontal size={16} /> Filters
+                      {[
+                        tagFilter,
+                        typeFilter,
+                        accountFilter,
+                        paymentFilter,
+                        receiptFilter,
+                        min,
+                        max,
+                      ].filter(Boolean).length > 0 && (
+                        <span className="filter-count">
+                          {
+                            [
+                              tagFilter,
+                              typeFilter,
+                              accountFilter,
+                              paymentFilter,
+                              receiptFilter,
+                              min,
+                              max,
+                            ].filter(Boolean).length
+                          }
+                        </span>
+                      )}
                     </button>
                   </div>
+                  {filtersOpen && (
+                    <div
+                      className="transaction-filters"
+                      id="transaction-filter-panel"
+                    >
+                      <TagSelect
+                        label="Tag filter"
+                        name="tagFilter"
+                        value={tagFilter}
+                        emptyLabel="All categories"
+                        options={data.tags.map((t) => ({
+                          value: t.id,
+                          label: t.name,
+                        }))}
+                        onChange={(value) => {
+                          setTagFilter(value);
+                          setOffset(0);
+                        }}
+                      />
+                      <label className="field">
+                        Transaction type
+                        <select
+                          aria-label="Type filter"
+                          value={typeFilter}
+                          onChange={(e) => {
+                            setTypeFilter(e.target.value);
+                            setOffset(0);
+                          }}
+                        >
+                          <option value="">All types</option>
+                          {["Income", "Expense", "Investment", "Transfer"].map(
+                            (t) => (
+                              <option key={t}>{t}</option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                      <label className="field">
+                        Account
+                        <select
+                          aria-label="Account filter"
+                          value={accountFilter}
+                          onChange={(e) => {
+                            setAccountFilter(e.target.value);
+                            setOffset(0);
+                          }}
+                        >
+                          <option value="">All accounts</option>
+                          {accountOptions.map((value) => (
+                            <option key={value} value={value}>
+                              {accountName(value)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        Payment method
+                        <select
+                          aria-label="Payment method filter"
+                          value={paymentFilter}
+                          onChange={(e) => setPaymentFilter(e.target.value)}
+                        >
+                          <option value="">All payment methods</option>
+                          {Array.from(
+                            new Set(
+                              data.transactions
+                                .map((row) => row.payment)
+                                .filter(Boolean),
+                            ),
+                          )
+                            .sort()
+                            .map((value) => (
+                              <option key={value}>{value}</option>
+                            ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        Receipts
+                        <select
+                          aria-label="Receipt filter"
+                          value={receiptFilter}
+                          onChange={(e) => setReceiptFilter(e.target.value)}
+                        >
+                          <option value="">All receipts</option>
+                          <option value="with">With receipts</option>
+                          <option value="without">Without receipts</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        Minimum amount (₹)
+                        <input
+                          aria-label="Minimum amount"
+                          type="number"
+                          placeholder="Min ₹"
+                          value={min}
+                          onChange={(e) => setMin(e.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        Maximum amount (₹)
+                        <input
+                          aria-label="Maximum amount"
+                          type="number"
+                          placeholder="Max ₹"
+                          value={max}
+                          onChange={(e) => setMax(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        onClick={() => {
+                          setTagFilter("");
+                          setAccountFilter("");
+                          setTypeFilter("");
+                          setPaymentFilter("");
+                          setReceiptFilter("");
+                          setSearch("");
+                          setPerson("Combined");
+                          setPeriod("All Time");
+                          setSort("newest");
+                          setMin("");
+                          setMax("");
+                        }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
                   {selected.length > 0 && (
                     <div className="bulk">
                       {selected.length} selected
@@ -2670,7 +2730,7 @@ export default function Home() {
                       value={modal.record.type}
                       options={["Expense", "Income", "Investment", "Transfer"]}
                     />
-                    <Select
+                    <TagSelect
                       label="Expense tag"
                       name="tagId"
                       value={modal.record.tagId}
@@ -2829,7 +2889,7 @@ export default function Home() {
                           value={modal.record.person}
                           options={["Ram", "Varsha", "Combined"]}
                         />
-                        <Select
+                        <TagSelect
                           label="Category"
                           name="tagId"
                           value={modal.record.tagId}

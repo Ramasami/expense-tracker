@@ -20,7 +20,7 @@ class StaticPreviewServer(ThreadingHTTPServer):
 
 handler = partial(SimpleHTTPRequestHandler, directory=str(root))
 with StaticPreviewServer(('127.0.0.1', args.port), handler) as server:
-    print(f'Static WealthTrack preview: http://127.0.0.1:{args.port}', flush=True)
+    print(f'Static Budget Tracker preview: http://127.0.0.1:{args.port}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

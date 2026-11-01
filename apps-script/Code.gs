@@ -71,7 +71,34 @@ function setup() {
     folder = DriveApp.createFolder("Budget Tracker — Shared Receipts");
     props.setProperty("RECEIPT_FOLDER", folder.getId());
   }
-  folder.addViewer(PEOPLE[1]);
+  const permissions =
+    JSON.parse(
+      drive_(
+        "drive/v3/files/" +
+          folder.getId() +
+          "/permissions?fields=permissions(emailAddress)",
+      ).getContentText(),
+    ).permissions || [];
+  if (
+    !permissions.some(
+      (p) => String(p.emailAddress || "").toLowerCase() === PEOPLE[1],
+    )
+  ) {
+    drive_(
+      "drive/v3/files/" +
+        folder.getId() +
+        "/permissions?sendNotificationEmail=false",
+      {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          type: "user",
+          role: "reader",
+          emailAddress: PEOPLE[1],
+        }),
+      },
+    );
+  }
   return { folderId: folder.getId() };
 }
 function folder_() {

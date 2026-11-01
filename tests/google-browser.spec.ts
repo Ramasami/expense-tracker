@@ -147,6 +147,7 @@ test("transaction accounts accept text; search, combined filters and sorting use
   await expect(page.locator("tbody tr").first()).toContainText("Original");
   await page.getByLabel("Search transactions", { exact: true }).fill("wallet");
   await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Filters/ }).click();
   await page.getByLabel("Account filter").selectOption("My wallet");
   await page.getByLabel("Minimum amount").fill("501");
   await expect(page.locator("tbody tr")).toHaveCount(0);
@@ -678,4 +679,61 @@ test("shared receipt deletion restores the owner file when the Sheet save fails"
   );
   expect(files.get(receipt.id).trashed).toBe(false);
   expect(JSON.parse(f.grids["Expense Ledger"][1][22])).toHaveLength(1);
+});
+
+test("mobile transaction toolbar keeps detailed filters tucked away and tag search restricts dropdown choices", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  f.grids["Expense Tags"].push(["Travel", "Expense", "", "3", "Active", 1]);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByLabel("Search transactions", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Sort transactions")).toBeVisible();
+  await expect(page.getByLabel("Account filter")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Filters/ }).click();
+  await page.getByLabel("Search tag filters", { exact: true }).fill("gRoC");
+  await expect(
+    page.getByLabel("Tag filter", { exact: true }).locator("option"),
+  ).toHaveText(["All categories", "Groceries"]);
+  await page
+    .getByLabel("Tag filter", { exact: true })
+    .selectOption("sheet-tag-2");
+  await page.getByRole("button", { name: /^Filters/ }).click();
+  await expect(page.getByRole("button", { name: /^Filters/ })).toContainText(
+    "1",
+  );
+  await page.locator(".transaction-toolbar").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "work/transactions-mobile-clean.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Search expense tags", { exact: true })
+    .fill("travel");
+  await expect(
+    dialog.getByLabel("Expense tag", { exact: true }).locator("option"),
+  ).toHaveText(["Select…", "Travel"]);
+  await dialog
+    .getByLabel("Expense tag", { exact: true })
+    .selectOption("sheet-tag-3");
+  await dialog
+    .getByLabel("Search expense tags", { exact: true })
+    .fill("no-such-tag");
+  await expect(dialog.getByLabel("Expense tag", { exact: true })).toHaveValue(
+    "sheet-tag-3",
+  );
+  await expect(dialog.getByRole("status")).toContainText(
+    "No matching expense tags",
+  );
 });

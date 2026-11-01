@@ -925,22 +925,64 @@ progress {
   font-size: 12px;
   margin-top: 19px;
 }
-.transaction-filters {
+.transaction-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 170px auto;
+  gap: 10px;
+  padding: 18px 24px;
+  align-items: center;
+}
+.transaction-toolbar input,
+.transaction-toolbar select {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  min-height: 44px;
+}
+.filter-toggle {
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
-  flex-wrap: wrap;
-  padding: 17px 24px;
+  min-height: 44px;
+  white-space: nowrap;
+}
+.filter-toggle.active {
+  background: var(--soft);
+  border-color: var(--text);
+}
+.filter-count {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  min-width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+.transaction-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 18px 24px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--soft);
 }
 .transaction-filters select,
 .transaction-filters input {
-  font-size: 10px;
-  max-width: 150px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  min-height: 44px;
 }
-.transaction-filters input {
-  width: 80px;
+.transaction-filters .tag-picker {
+  grid-row: span 2;
+  align-self: start;
 }
-.transaction-filters button {
-  font-size: 10px;
+.transaction-filters > button {
+  align-self: end;
+  min-height: 44px;
 }
 .pagination {
   display: flex;
@@ -1749,4 +1791,36 @@ html {
   background: var(--card);
   box-shadow: 0 4px 24px #0002;
   pointer-events: none;
+}
+
+.tag-picker {
+  min-width: 0;
+}
+.tag-picker small {
+  font-size: 11px;
+}
+.transaction-filters .tag-picker {
+  gap: 6px;
+}
+
+@media (max-width: 700px) {
+  .transaction-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 15px;
+  }
+  .transaction-toolbar > input {
+    grid-column: 1 / -1;
+  }
+  .transaction-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 15px;
+    gap: 14px;
+  }
+  .transaction-filters .tag-picker {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+  .transaction-filters > button {
+    grid-column: 1 / -1;
+  }
 }
