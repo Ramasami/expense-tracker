@@ -958,141 +958,160 @@ export default function Home() {
       )}
     </div>
   );
-  const transactionTable = (limit?: number) => (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {!limit && (
-              <th>
+  const transactionList = (limit?: number) => {
+    const visible = transactions.slice(
+      limit ? 0 : offset,
+      limit || offset + 20,
+    );
+    const allSelected =
+      visible.length > 0 && visible.every((row) => selected.includes(row.id));
+    const partlySelected =
+      !allSelected && visible.some((row) => selected.includes(row.id));
+    return (
+      <div className="transaction-feed">
+        {!limit && visible.length > 0 && (
+          <label className="transaction-select-all">
+            <input
+              aria-label="Select all visible transactions"
+              type="checkbox"
+              checked={allSelected}
+              ref={(element) => {
+                if (element) element.indeterminate = partlySelected;
+              }}
+              onChange={(event) =>
+                setSelected(
+                  event.target.checked
+                    ? Array.from(
+                        new Set([...selected, ...visible.map((row) => row.id)]),
+                      )
+                    : selected.filter(
+                        (id) => !visible.some((row) => row.id === id),
+                      ),
+                )
+              }
+            />
+            Select all
+          </label>
+        )}
+        <ul
+          className="transaction-list"
+          aria-label={limit ? "Recent transactions" : "Transactions"}
+        >
+          {visible.map((r) => (
+            <li
+              className={`transaction-item${!limit ? " selectable" : ""}`}
+              key={r.id}
+            >
+              {!limit && (
                 <input
-                  aria-label="Select all visible transactions"
+                  className="transaction-checkbox"
+                  aria-label={`Select ${r.description}`}
                   type="checkbox"
-                  checked={!!selected.length}
-                  onChange={(e) =>
+                  checked={selected.includes(r.id)}
+                  onChange={(event) =>
                     setSelected(
-                      e.target.checked
-                        ? transactions
-                            .slice(offset, offset + 20)
-                            .map((r) => r.id)
-                        : [],
+                      event.target.checked
+                        ? [...selected, r.id]
+                        : selected.filter((id) => id !== r.id),
                     )
                   }
                 />
-              </th>
-            )}
-            <th>Transaction</th>
-            <th>Category</th>
-            <th>Person</th>
-            <th>Date</th>
-            <th className="right">Amount</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {transactions
-            .slice(limit ? 0 : offset, limit || offset + 20)
-            .map((r) => (
-              <tr key={r.id}>
-                <>
-                  {!limit && (
-                    <td>
-                      <input
-                        aria-label={`Select ${r.description}`}
-                        type="checkbox"
-                        checked={selected.includes(r.id)}
-                        onChange={(e) =>
-                          setSelected(
-                            e.target.checked
-                              ? [...selected, r.id]
-                              : selected.filter((id) => id !== r.id),
-                          )
-                        }
-                      />
-                    </td>
-                  )}
-                  <td>
-                    <button
-                      className="merchant"
-                      onClick={() => {
-                        setDetail(r);
-                        void refreshSheet(false, "Transaction details");
-                      }}
-                    >
-                      <span
-                        className="merchant-icon"
-                        style={{
-                          background:
-                            r.type === "Income" ? "#008a7512" : "#ff385c0d",
-                          color: r.type === "Income" ? "#008a75" : "#ff385c",
-                        }}
-                      >
-                        {r.type === "Income" ? (
-                          <ArrowDownRight size={19} />
-                        ) : (
-                          <ArrowUpRight size={19} />
-                        )}
-                      </span>
-                      <span>
-                        <b>{r.description}</b>
-                        <small>{r.payment || "From Google Sheets"}</small>
-                      </span>
-                    </button>
-                  </td>
-                  <td>
-                    <span className="chip">{r.tag}</span>
-                  </td>
-                  <td>{r.person || "Unassigned"}</td>
-                  <td>{r.date}</td>
-                  <td
-                    className="right amount"
-                    style={{
-                      color: r.type === "Income" ? "var(--teal)" : "inherit",
+              )}
+              <div className="transaction-body">
+                <div className="transaction-topline">
+                  <button
+                    className="merchant"
+                    title={r.description}
+                    onClick={() => {
+                      setDetail(r);
+                      void refreshSheet(false, "Transaction details");
                     }}
+                  >
+                    <span className="merchant-icon" data-type={r.type}>
+                      {r.type === "Income" ? (
+                        <ArrowDownRight size={18} />
+                      ) : r.type === "Transfer" ? (
+                        <ArrowLeftRight size={18} />
+                      ) : r.type === "Investment" ? (
+                        <TrendingUp size={18} />
+                      ) : (
+                        <ArrowUpRight size={18} />
+                      )}
+                    </span>
+                    <b>{r.description}</b>
+                  </button>
+                  <strong
+                    className={`transaction-amount${r.type === "Income" ? " income" : ""}`}
                   >
                     {r.type === "Income" ? "+" : "−"}
                     {money(Number(r.amount))}
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        aria-label="Edit transaction"
-                        disabled={stale || syncing || saving}
-                        onClick={() => open("transactions", r)}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        aria-label={
-                          deleted ? "Restore transaction" : "Delete transaction"
-                        }
-                        disabled={saving || setup || syncing}
-                        onClick={() =>
-                          action(
-                            "transactions",
-                            deleted ? "restore" : "delete",
-                            r,
-                          )
-                        }
-                      >
-                        {deleted ? (
-                          <RotateCcw size={14} />
-                        ) : (
-                          <Trash2 size={14} />
-                        )}
-                      </button>
-                    </div>
-                  </td>
-                </>
-              </tr>
-            ))}
-        </tbody>
-      </table>
-      {!transactions.length && (
-        <div className="empty">No transactions match this view.</div>
-      )}
-    </div>
-  );
+                  </strong>
+                </div>
+                <div className="transaction-meta">
+                  <span className="chip">{r.tag || "Uncategorized"}</span>
+                  <span>{r.person || "Unassigned"}</span>
+                  <time dateTime={r.date}>
+                    {new Date(r.date + "T00:00:00").toLocaleDateString(
+                      "en-IN",
+                      { day: "numeric", month: "short", year: "numeric" },
+                    )}
+                  </time>
+                </div>
+                <div className="transaction-bottomline">
+                  <div className="transaction-context">
+                    <span>{r.payment || r.type}</span>
+                    {r.account && (
+                      <span>
+                        {accountName(r.account)}
+                        {r.toAccount ? ` → ${accountName(r.toAccount)}` : ""}
+                      </span>
+                    )}
+                    {Array.isArray(r.receipts) && r.receipts.length > 0 && (
+                      <span>
+                        {r.receipts.length} receipt
+                        {r.receipts.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="row-actions transaction-actions">
+                    <button
+                      aria-label="Edit transaction"
+                      title="Edit transaction"
+                      disabled={stale || syncing || saving}
+                      onClick={() => open("transactions", r)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      aria-label={
+                        deleted ? "Restore transaction" : "Delete transaction"
+                      }
+                      title={
+                        deleted ? "Restore transaction" : "Delete transaction"
+                      }
+                      disabled={saving || setup || syncing}
+                      onClick={() =>
+                        action(
+                          "transactions",
+                          deleted ? "restore" : "delete",
+                          r,
+                        )
+                      }
+                    >
+                      {deleted ? <RotateCcw size={15} /> : <Trash2 size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!transactions.length && (
+          <div className="empty">No transactions match this view.</div>
+        )}
+      </div>
+    );
+  };
   const entityPage = () => {
     const key = entities[page];
     if (!key) return null;
@@ -1827,7 +1846,7 @@ export default function Home() {
                         View all <ArrowRight size={15} />
                       </button>
                     </div>
-                    {transactionTable(5)}
+                    {transactionList(5)}
                   </section>
                   <div className="available-cash card">
                     <div>
@@ -2113,7 +2132,7 @@ export default function Home() {
                       </button>
                     </div>
                   )}
-                  {transactionTable()}
+                  {transactionList()}
                   <div className="pagination">
                     <span>{transactions.length} records</span>
                     <button

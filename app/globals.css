@@ -1895,3 +1895,174 @@ html {
 .transaction-filters .tag-picker {
   grid-row: auto;
 }
+
+.transaction-feed {
+  min-width: 0;
+}
+.transaction-select-all {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.transaction-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.transaction-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 17px 24px;
+  border-top: 1px solid var(--border);
+}
+.transaction-item.selectable {
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+.transaction-checkbox {
+  margin: 11px 0 0;
+  align-self: start;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--coral);
+}
+.transaction-body {
+  min-width: 0;
+}
+.transaction-topline {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.transaction-topline .merchant {
+  justify-content: flex-start;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+}
+.transaction-topline .merchant b {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.transaction-topline .merchant-icon {
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  background: #ff385c0d;
+  color: var(--coral);
+}
+.transaction-topline .merchant-icon[data-type="Income"] {
+  color: var(--teal);
+  background: #008a7512;
+}
+.transaction-topline .merchant-icon[data-type="Investment"] {
+  color: var(--purple);
+  background: #7161ef12;
+}
+.transaction-topline .merchant-icon[data-type="Transfer"] {
+  color: var(--blue);
+  background: #2684d912;
+}
+.transaction-amount {
+  max-width: 48%;
+  padding-top: 7px;
+  font-size: 14px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+  flex-shrink: 0;
+}
+.transaction-amount.income {
+  color: var(--teal);
+}
+.transaction-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 11px;
+  margin: 7px 0 0 41px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.transaction-meta .chip {
+  font-size: 10px;
+  padding: 3px 7px;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.transaction-bottomline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 0 41px;
+}
+.transaction-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+  min-width: 0;
+}
+.transaction-context span {
+  overflow-wrap: anywhere;
+}
+.transaction-actions {
+  flex-shrink: 0;
+  gap: 3px;
+}
+.transaction-actions button {
+  min-width: 30px;
+  min-height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.transaction-actions button:hover {
+  color: var(--text);
+  background: var(--soft);
+  border-radius: 8px;
+}
+@media (max-width: 700px) {
+  .transaction-item {
+    padding: 14px 15px;
+    gap: 8px;
+  }
+  .transaction-select-all {
+    padding: 9px 15px;
+  }
+  .transaction-topline {
+    gap: 9px;
+  }
+  .transaction-topline .merchant b {
+    font-size: 12px;
+  }
+  .transaction-amount {
+    font-size: 13px;
+  }
+  .transaction-meta {
+    gap: 5px 9px;
+    font-size: 10px;
+  }
+  .transaction-bottomline {
+    margin-left: 0;
+  }
+  .transaction-context {
+    font-size: 10px;
+  }
+}

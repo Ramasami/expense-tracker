@@ -21,7 +21,7 @@ test("login survives refresh, fetches new sheet values, and sign-out hides data"
     .locator("nav")
     .getByRole("button", { name: /^Transactions/ })
     .click();
-  await expect(page.locator("tbody")).toContainText("₹250");
+  await expect(page.locator(".transaction-list")).toContainText("₹250");
   f.grids["Expense Ledger"][1][4] = 450;
   const before = state.sheetRequests;
   await page.reload();
@@ -30,7 +30,7 @@ test("login survives refresh, fetches new sheet values, and sign-out hides data"
     .locator("nav")
     .getByRole("button", { name: /^Transactions/ })
     .click();
-  await expect(page.locator("tbody")).toContainText("₹450");
+  await expect(page.locator(".transaction-list")).toContainText("₹450");
   expect(state.signIns).toBe(1);
   expect(state.sheetRequests).toBeGreaterThan(before);
   expect(state.publicRequests).toBe(0);
@@ -141,19 +141,23 @@ test("transaction accounts accept text; search, combined filters and sorting use
     .locator("nav")
     .getByRole("button", { name: /^Transactions/ })
     .click();
-  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".transaction-item")).toHaveCount(2);
   await page.getByLabel("Sort transactions").selectOption("amount");
-  await expect(page.locator("tbody tr").first()).toContainText("Zebra shop");
+  await expect(page.locator(".transaction-item").first()).toContainText(
+    "Zebra shop",
+  );
   await page.getByLabel("Sort transactions").selectOption("amount-low");
-  await expect(page.locator("tbody tr").first()).toContainText("Original");
+  await expect(page.locator(".transaction-item").first()).toContainText(
+    "Original",
+  );
   await page.getByLabel("Search transactions", { exact: true }).fill("wallet");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator(".transaction-item")).toHaveCount(1);
   await page.getByRole("button", { name: /^Filters/ }).click();
   await page.getByLabel("Account filter").selectOption("My wallet");
   await page.getByLabel("Minimum amount").fill("501");
-  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await expect(page.locator(".transaction-item")).toHaveCount(0);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".transaction-item")).toHaveCount(2);
 });
 test("receipts upload to Drive, link to the sheet, and fetch image bytes only when opened", async ({
   page,
@@ -236,7 +240,7 @@ test("a fresh app session restores login after closing the app and fetches fresh
       .locator("nav")
       .getByRole("button", { name: /^Transactions/ })
       .click();
-    await expect(nextPage.locator("tbody")).toContainText("₹777");
+    await expect(nextPage.locator(".transaction-list")).toContainText("₹777");
     expect(
       await nextPage.evaluate(() =>
         sessionStorage.getItem("wealthtrack-google-session"),
@@ -529,7 +533,7 @@ test("pull-to-refresh requests just the visible screen and does not poll Sheets"
         new TouchEvent("touchend", { bubbles: true, touches: [] }),
       ),
   );
-  await expect(page.locator("tbody")).toContainText("₹888");
+  await expect(page.locator(".transaction-list")).toContainText("₹888");
   expect(state.sheetRequests - before).toBe(2);
   await page.clock.install();
   const synced = state.sheetRequests;
@@ -563,12 +567,12 @@ test("an offline phone relaunch uses the app shell and cached data with edits di
     .locator("nav")
     .getByRole("button", { name: /^Transactions/ })
     .click();
-  await expect(offlinePage.locator("tbody")).toContainText("₹250");
+  await expect(offlinePage.locator(".transaction-list")).toContainText("₹250");
   const next = await mockGoogle(offlinePage);
   next.f.grids["Expense Ledger"][1][4] = 999;
   await context.setOffline(false);
   await expect(offlinePage.locator(".offline-banner")).toHaveCount(0);
-  await expect(offlinePage.locator("tbody")).toContainText("₹999");
+  await expect(offlinePage.locator(".transaction-list")).toContainText("₹999");
   await expect(
     offlinePage.getByRole("button", { name: "Add transaction", exact: true }),
   ).toBeEnabled();
@@ -806,3 +810,63 @@ for (const width of [390, 1440]) {
       .toBeGreaterThan(before);
   });
 }
+
+test("transaction cards fit small screens, wrap details and keep selection and actions", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const row = [...f.grids["Expense Ledger"][1]];
+  row[1] =
+    "A long merchant name for groceries, household supplies and everyday essentials";
+  row[4] = 12345678;
+  row[10] = "3";
+  row[18] = "A very long account name for the household expenses";
+  f.grids["Expense Ledger"].push(row);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await expect(
+    page.getByRole("list", { name: "Transactions", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("table")).toHaveCount(0);
+  await expect(page.locator(".transaction-item")).toHaveCount(2);
+  for (const width of [360, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page
+        .locator(".transaction-list")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.getByLabel("Select Original", { exact: true }).check();
+  await expect(
+    page.getByLabel("Select all visible transactions", { exact: true }),
+  ).toHaveJSProperty("indeterminate", true);
+  await page
+    .getByLabel("Select all visible transactions", { exact: true })
+    .check();
+  await expect(page.locator(".transaction-checkbox:checked")).toHaveCount(2);
+  await page
+    .getByLabel("Select all visible transactions", { exact: true })
+    .uncheck();
+  await expect(page.locator(".transaction-checkbox:checked")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Edit transaction", { exact: true }),
+  ).toHaveCount(2);
+  await expect(
+    page.getByLabel("Delete transaction", { exact: true }),
+  ).toHaveCount(2);
+  await page.locator(".transaction-list").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "work/transaction-list-mobile.png",
+    fullPage: true,
+  });
+});
