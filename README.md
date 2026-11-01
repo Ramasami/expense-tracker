@@ -91,3 +91,4 @@ The superseded backend and prior local CLI credentials remain under ignored `wor
 The app accepts only verified Google profiles for `ramasami.official@gmail.com` and `tnvarsha.99@gmail.com`. Other accounts are rejected before any authenticated Sheets requests or workbook setup. This browser check is a convenience guard, not a security boundary: enforce access with Google's test-user list and workbook sharing permissions. A static GitHub Pages site remains public, and anonymous reads still expose any publicly shared workbook data. Changing workbook sharing to Restricted also requires signed-in reads; anonymous imports will stop.
 # Expense-Tracker
 # Expense-Tracker
+# Expense-Tracker
