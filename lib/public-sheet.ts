@@ -96,7 +96,7 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
         version: 1,
         source: "google-sheet",
       };
-      data.tags.push(tag);
+      // Historical unlisted tags remain readable but are not added to Expense Tags.
     }
     data.transactions.push({
       id: "sheet-tx-" + (ti >= 0 && row[ti] ? row[ti] : i + 2),
@@ -109,6 +109,7 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
       payment: row[5] || "",
       person: ["Ram", "Varsha"].includes(row[6]) ? row[6] : "Combined",
       notes: row[7] || "",
+      receipts: JSON.parse(row[field(lh, ["receipts"])] || "[]"),
       account: row[field(lh, ["account"])] || "",
       toAccount: row[field(lh, ["toAccount"])] || "",
       updatedBy: row[field(lh, ["updatedBy"])] || "",

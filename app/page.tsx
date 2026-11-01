@@ -1,19 +1,13 @@
 "use client";
 import Analytics from "./analytics";
-import {
-  readSnapshot,
-  mutateLocal,
-  backupText,
-  importBackup,
-  refreshPublicSnapshot,
-  acceptGoogleSnapshot,
-} from "../lib/local-store";
-import { readPublicSheet, SHEET_URL } from "../lib/public-sheet";
+import Receipts from "./receipts";
+import { SHEET_URL } from "../lib/public-sheet";
 import {
   configuredClientId,
   saveClientId,
   loadGoogleIdentity,
   signInGoogle,
+  restoreGoogleSession,
   currentGoogleSession,
   disconnectGoogle,
   GoogleSession,
@@ -141,7 +135,7 @@ export default function Home() {
   const [data, setData] = useState<Snapshot>(empty),
     [page, setPage] = useState("Dashboard"),
     [person, setPerson] = useState("Combined"),
-    [period, setPeriod] = useState("This Month"),
+    [period, setPeriod] = useState("All Time"),
     [custom, setCustom] = useState<[string, string]>([today(), today()]),
     [search, setSearch] = useState(""),
     [theme, setTheme] = useState("light"),
@@ -161,6 +155,8 @@ export default function Home() {
     [tagFilter, setTagFilter] = useState(""),
     [typeFilter, setTypeFilter] = useState(""),
     [accountFilter, setAccountFilter] = useState(""),
+    [paymentFilter, setPaymentFilter] = useState(""),
+    [receiptFilter, setReceiptFilter] = useState(""),
     [min, setMin] = useState(""),
     [max, setMax] = useState(""),
     [sort, setSort] = useState("newest"),
@@ -175,141 +171,158 @@ export default function Home() {
     [clientId, setClientId] = useState(""),
     [authReady, setAuthReady] = useState(false),
     [connecting, setConnecting] = useState(false),
-    [destination, setDestination] = useState<"google" | "browser">("google");
-  const destinationRef = useRef<"google" | "browser">("google");
-  function chooseDestination(value: "google" | "browser") {
-    setDestination(value);
-    destinationRef.current = value;
-    localStorage.setItem("wealthtrack-save-destination", value);
+    [authChecked, setAuthChecked] = useState(false),
+    [dataReady, setDataReady] = useState(false);
+  const epoch = useRef(0);
+  const sheetBusy = useRef(false);
+  const savingRef = useRef(false);
+  const channel = useRef<BroadcastChannel | null>(null);
+  function signOut(message = "") {
+    epoch.current++;
+    disconnectGoogle();
+    setGoogleSession(null);
+    setData(empty);
+    setDataReady(false);
+    setModal(null);
+    setDetail(null);
+    setConflict(null);
+    setNotice("");
+    setError(message);
+    setPage("Dashboard");
+    setPeriod("All Time");
+    setSelected([]);
+    setSearch("");
+  }
+  function failData(message: string) {
+    setDetail(null);
+    setConflict(null);
+    setSelected([]);
+    setNotice("");
+    setData(empty);
+    setDataReady(false);
+    setStatus("Google Sheets unavailable");
+    setError(message);
+    if (!currentGoogleSession()) signOut(message);
+  }
+  async function refreshSheet(initialize = false) {
+    if (sheetBusy.current || savingRef.current) return;
+    if (!currentGoogleSession()) {
+      signOut("Your Google session expired. Sign in again.");
+      return;
+    }
+    sheetBusy.current = true;
+    const requestEpoch = ++epoch.current;
+    setStatus("Fetching Google Sheets");
+    try {
+      if (initialize) await ensureGoogleSchema();
+      const snapshot = await readGoogleSnapshot();
+      if (requestEpoch !== epoch.current || !currentGoogleSession()) return;
+      setData(snapshot.data);
+      const prefs = snapshot.data.settings.find(
+        (row) => row.name === "Household preferences",
+      );
+      if (prefs && initialize) {
+        if (prefs.person) setPerson(prefs.person);
+      }
+      setDataReady(true);
+      setSetup(false);
+      setError("");
+      setSheetStatus("Google Sheets connected");
+      setStatus("Google connected");
+      const time = new Date().toLocaleTimeString("en-IN");
+      setSheetTime(time);
+      setLastSync(time);
+    } catch (e: any) {
+      if (requestEpoch === epoch.current) {
+        if (e.status === 401) signOut(e.message);
+        else
+          failData(
+            e.message ||
+              "Could not load Google Sheets. Retry when your connection is available.",
+          );
+      }
+    } finally {
+      sheetBusy.current = false;
+    }
   }
   async function connectGoogle() {
     setConnecting(true);
     setError("");
     try {
       if (clientId.trim()) saveClientId(clientId);
-      if (!configuredClientId()) {
-        navigate("Settings");
-        throw Error(
-          "Create a Google Web OAuth client and paste its client ID below to enable sheet saves.",
-        );
-      }
       const session = await signInGoogle();
       setGoogleSession(session);
-      await ensureGoogleSchema();
-      const snapshot = await readGoogleSnapshot();
-      setData(await acceptGoogleSnapshot(snapshot.data));
-      chooseDestination("google");
-      setSheetStatus("Google Sheets connected");
-      setStatus("Google connected");
-      setNotice(
-        "Signed in as " + session.email + ". Saves now update Google Sheets.",
-      );
+      await refreshSheet(true);
     } catch (e: any) {
-      setError(e.message);
+      signOut(e.message);
     } finally {
       setConnecting(false);
     }
   }
-  const [sheetStatus, setSheetStatus] = useState("Loading public sheet"),
+  const [sheetStatus, setSheetStatus] = useState("Google Sheets"),
     [sheetTime, setSheetTime] = useState("");
-  const sheetBusy = useRef(false);
-  async function refreshSheet() {
-    if (sheetBusy.current) return;
-    sheetBusy.current = true;
-    try {
-      if (currentGoogleSession()) {
-        const snapshot = await readGoogleSnapshot();
-        setData(await acceptGoogleSnapshot(snapshot.data));
-        setSheetStatus("Google Sheets connected");
-      } else {
-        setGoogleSession(null);
-        const source = await readPublicSheet(AbortSignal.timeout(20000));
-        setData(await refreshPublicSnapshot(source));
-        setSheetStatus("Public sheet connected");
-      }
-      setSheetTime(new Date().toLocaleTimeString("en-IN"));
-      channel.current?.postMessage("changed");
-    } catch (e: any) {
-      setSheetStatus("Public sheet unavailable · using browser copy");
-    } finally {
-      sheetBusy.current = false;
-    }
-  }
-  const loadedDefaults = useRef(false);
-  const inflight = useRef(false);
-  const channel = useRef<BroadcastChannel | null>(null);
-  async function refresh() {
-    if (inflight.current) return;
-    inflight.current = true;
-    setStatus("Syncing");
-    try {
-      const d = await readSnapshot();
-      setData(d);
-      if (!loadedDefaults.current) {
-        loadedDefaults.current = true;
-        const prefs = d.settings?.find(
-          (s: any) => s.name === "Household preferences",
-        );
-        if (prefs) {
-          if (prefs.person) setPerson(prefs.person);
-          if (prefs.period) setPeriod(prefs.period);
-        }
-      }
-      setStatus(
-        destinationRef.current === "google"
-          ? currentGoogleSession()
-            ? "Google connected"
-            : "Sign in to save"
-          : "Saved locally",
-      );
-      setLastSync(new Date().toLocaleTimeString("en-IN"));
-      setError("");
-      setSetup(false);
-    } catch (e: any) {
-      setStatus("Storage error");
-      setSetup(true);
-      setError(e.message);
-    } finally {
-      inflight.current = false;
-    }
-  }
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
     setClientId(configuredClientId());
-    const savedDestination =
-      localStorage.getItem("wealthtrack-save-destination") === "browser"
-        ? "browser"
-        : "google";
-    setDestination(savedDestination);
-    destinationRef.current = savedDestination;
     loadGoogleIdentity()
-      .then(() => setAuthReady(true))
-      .catch(() => setAuthReady(false));
+      .then(() => {
+        if (!cancelled) setAuthReady(true);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
     const t = localStorage.getItem("wealthtrack-theme") || "light";
     setTheme(t);
     document.documentElement.dataset.theme = t;
-    refresh();
-    refreshSheet();
-    const timer = setInterval(() => {
-      if (!document.hidden) refreshSheet();
-    }, 15000);
-    const active = () => {
-      if (!document.hidden) {
-        refresh();
-        refreshSheet();
+    (async () => {
+      try {
+        const restored = await restoreGoogleSession();
+        if (cancelled) return;
+        if (restored) {
+          setGoogleSession(restored);
+          await refreshSheet(true);
+        }
+      } catch (e: any) {
+        if (!cancelled) signOut(e.message);
+      } finally {
+        if (!cancelled) setAuthChecked(true);
+      }
+    })();
+    const checkSession = () => {
+      if (currentGoogleSession()) {
+        if (!document.hidden) refreshSheet();
+      } else if (
+        sessionStorage.getItem("wealthtrack-google-session") === null
+      ) {
+        // Also hides data as soon as the token expires.
+        signOut();
       }
     };
-    document.addEventListener("visibilitychange", active);
+    const timer = setInterval(checkSession, 15000);
+    document.addEventListener("visibilitychange", checkSession);
     if ("BroadcastChannel" in window) {
       channel.current = new BroadcastChannel("wealthtrack");
-      channel.current.onmessage = () => refresh();
+      channel.current.onmessage = () => {
+        if (currentGoogleSession()) refreshSheet();
+      };
     }
     return () => {
+      cancelled = true;
+      epoch.current++;
       clearInterval(timer);
-      document.removeEventListener("visibilitychange", active);
+      document.removeEventListener("visibilitychange", checkSession);
       channel.current?.close();
     };
   }, []);
+  useEffect(() => {
+    if (!googleSession) return;
+    const timer = setTimeout(
+      () => signOut("Your Google session expired. Sign in again."),
+      Math.max(0, googleSession.expiresAt - Date.now() - 30000),
+    );
+    return () => clearTimeout(timer);
+  }, [googleSession]);
   useEffect(
     () => setOffset(0),
     [
@@ -318,6 +331,8 @@ export default function Home() {
       tagFilter,
       typeFilter,
       accountFilter,
+      paymentFilter,
+      receiptFilter,
       min,
       max,
       search,
@@ -382,24 +397,61 @@ export default function Home() {
         saved: r.Income - r.Expense,
       }));
   }, [data, person, range[0], range[1]]);
+  function accountName(value: string) {
+    return (
+      data.accounts.find((account) => account.id === value)?.name || value || ""
+    );
+  }
+  const accountOptions = Array.from(
+    new Set([
+      ...data.accounts.map((account) => account.id),
+      ...data.transactions
+        .flatMap((row) => [row.account, row.toAccount])
+        .filter(Boolean),
+    ]),
+  );
   const transactions = filtered
     .filter(
       (r) =>
         (deleted ? r.status === "Deleted" : r.status !== "Deleted") &&
         (!search ||
-          JSON.stringify(r).toLowerCase().includes(search.toLowerCase())) &&
+          [
+            r.description,
+            r.notes,
+            r.tag,
+            r.person,
+            r.payment,
+            accountName(r.account),
+            accountName(r.toAccount),
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(search.trim().toLowerCase())) &&
         (!tagFilter || r.tagId === tagFilter || r.tag === tagFilter) &&
         (!typeFilter || r.type === typeFilter) &&
-        (!accountFilter || r.account === accountFilter) &&
+        (!accountFilter ||
+          r.account === accountFilter ||
+          r.toAccount === accountFilter) &&
+        (!paymentFilter || r.payment === paymentFilter) &&
+        (!receiptFilter ||
+          (receiptFilter === "with"
+            ? r.receipts?.length > 0
+            : !r.receipts?.length)) &&
         (!min || Number(r.amount) >= Number(min)) &&
         (!max || Number(r.amount) <= Number(max)),
     )
     .sort((a, b) =>
       sort === "amount"
         ? b.amount - a.amount
-        : sort === "oldest"
-          ? a.date.localeCompare(b.date)
-          : b.date.localeCompare(a.date),
+        : sort === "amount-low"
+          ? a.amount - b.amount
+          : sort === "merchant"
+            ? a.description.localeCompare(b.description)
+            : sort === "merchant-desc"
+              ? b.description.localeCompare(a.description)
+              : sort === "oldest"
+                ? a.date.localeCompare(b.date)
+                : b.date.localeCompare(a.date),
     );
   function navigate(p: string) {
     setPage(p);
@@ -432,51 +484,36 @@ export default function Home() {
   ) {
     setSaving(true);
     try {
-      const cloud = destinationRef.current === "google";
-      const operation = {
+      if (!dataReady || !currentGoogleSession())
+        throw Error("Sign in and load Google Sheets before saving.");
+      savingRef.current = true;
+      const requestEpoch = ++epoch.current;
+      const d = await saveGoogle({
         entity,
         action,
         record,
         operationId: op,
         actor,
         targetId,
-      };
-      const d = cloud
-        ? await saveGoogle(operation)
-        : await mutateLocal(operation);
+      });
+      if (requestEpoch !== epoch.current || !currentGoogleSession())
+        return false;
       if (d.conflict) {
         setConflict({ ...d, entity, action });
         setStatus("Conflict");
         return false;
       }
-      if (cloud) {
-        setData(
-          await acceptGoogleSnapshot(
-            d.data,
-            d.record
-              ? {
-                  entity,
-                  record: d.record,
-                  previousId: record.id,
-                }
-              : undefined,
-          ),
-        );
-        setStatus("Saved to Google Sheets");
-      } else await refresh();
+      setData(d.data);
+      setStatus("Saved to Google Sheets");
       channel.current?.postMessage("changed");
-      setNotice(
-        cloud
-          ? "Saved to Google Sheets"
-          : action === "runDue"
-            ? "Due schedules saved in this browser"
-            : "Saved in this browser",
-      );
+      setNotice("Saved to Google Sheets");
       return true;
     } catch (e: any) {
-      setError(e.message);
+      if (e.status === 401) signOut(e.message);
+      else failData(e.message);
       return false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -485,6 +522,18 @@ export default function Home() {
     if (!modal) return;
     const values = Object.fromEntries(new FormData(e.currentTarget).entries());
     const record = { ...modal.record, ...values };
+    if (["transactions", "recurring"].includes(modal.entity)) {
+      for (const field of ["account", "toAccount"]) {
+        const name = String(record[field] || "").trim();
+        record[field] =
+          data.accounts.find(
+            (account) =>
+              account.status === "Active" &&
+              (account.id === name ||
+                account.name.toLowerCase() === name.toLowerCase()),
+          )?.id || name;
+      }
+    }
     for (const key of ["amount", "openingBalance", "funded", "contribution"])
       if (key in record) record[key] = Number(record[key]);
     if (
@@ -535,7 +584,7 @@ export default function Home() {
           new Blob([csv(rows)], { type: "text/csv;charset=utf-8" }),
         );
       a.href = u;
-      a.download = `WealthTrack-${title}.csv`;
+      a.download = `Budget Tracker-${title}.csv`;
       a.click();
       URL.revokeObjectURL(u);
     } else if (format === "xlsx") {
@@ -561,12 +610,12 @@ export default function Home() {
           ),
         ],
         {},
-      ).toFile(`WealthTrack-${title}.xlsx`);
+      ).toFile(`Budget Tracker-${title}.xlsx`);
     } else {
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF();
       doc.setFontSize(18);
-      doc.text("WealthTrack | " + title, 14, 20);
+      doc.text("Budget Tracker | " + title, 14, 20);
       doc.setFontSize(10);
       doc.text(`${person} | ${range.join(" to ")}`, 14, 29);
       let y = 40;
@@ -592,7 +641,7 @@ export default function Home() {
         }
         y += 5;
       });
-      doc.save(`WealthTrack-${title}.pdf`);
+      doc.save(`Budget Tracker-${title}.pdf`);
     }
   }
   const card = (
@@ -806,15 +855,7 @@ export default function Home() {
                       </span>
                       <span>
                         <b>{r.description}</b>
-                        <small>
-                          {r.localEdited
-                            ? r.sourceChanged
-                              ? "Local edit · sheet also changed"
-                              : "Local edit · browser only"
-                            : r.source === "google-sheet"
-                              ? "From public Google Sheet"
-                              : r.payment || "Saved in this browser"}
-                        </small>
+                        <small>{r.payment || "From Google Sheets"}</small>
                       </span>
                     </button>
                   </td>
@@ -881,7 +922,18 @@ export default function Home() {
           r.person === "Combined" ||
           r.person === person) &&
         (!search ||
-          JSON.stringify(r).toLowerCase().includes(search.toLowerCase())),
+          [
+            r.description,
+            r.notes,
+            r.tag,
+            r.person,
+            r.payment,
+            accountName(r.account),
+            accountName(r.toAccount),
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(search.trim().toLowerCase())),
     );
     return (
       <>
@@ -1003,7 +1055,6 @@ export default function Home() {
                     <button
                       disabled={!googleSession || saving}
                       onClick={() => {
-                        chooseDestination("google");
                         mutate(key, "create", r);
                       }}
                     >
@@ -1059,11 +1110,61 @@ export default function Home() {
       </>
     );
   };
-  if (!mounted)
+  if (!mounted || !authChecked)
     return (
       <div className="empty" role="status">
         Loading your financial space…
       </div>
+    );
+  if (!googleSession || !dataReady)
+    return (
+      <main className="auth-screen">
+        <section className="auth-card">
+          <span className="logo">
+            <TrendingUp size={28} />
+          </span>
+          <div className="eyebrow">BUDGET TRACKER</div>
+          <h1>
+            {googleSession
+              ? "Connect to your Google Sheet"
+              : "Your finances start here"}
+          </h1>
+          <p>
+            {googleSession
+              ? "Your financial data will appear after Google Sheets responds successfully."
+              : "Sign in with your approved Google account to open your shared financial space."}
+          </p>
+          {error && (
+            <p className="alert" role="alert">
+              {error}
+            </p>
+          )}
+          {googleSession ? (
+            <>
+              <button
+                className="primary"
+                disabled={connecting}
+                onClick={() => refreshSheet(true)}
+              >
+                Retry Google Sheets
+              </button>
+              <button onClick={() => signOut()}>Sign out</button>
+            </>
+          ) : (
+            <button
+              className="primary"
+              disabled={connecting || !authReady}
+              onClick={connectGoogle}
+            >
+              {connecting ? "Connecting…" : "Sign in with Google"}
+            </button>
+          )}
+          <small>
+            Access is limited to Ram and Varsha. Financial records are loaded
+            from Google Sheets.
+          </small>
+        </section>
+      </main>
     );
   return (
     <div className="app">
@@ -1079,7 +1180,7 @@ export default function Home() {
           <span className="logo">
             <TrendingUp size={23} />
           </span>
-          wealthtrack<span className="brand-dot">.</span>
+          budget tracker<span className="brand-dot">.</span>
         </a>
         <div className="household">
           <div className="avatars">
@@ -1171,25 +1272,8 @@ export default function Home() {
             >
               {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
             </button>
-            <select
-              aria-label="Unverified audit name"
-              value={actor}
-              onChange={(e) => setActor(e.target.value)}
-            >
-              <option>Ram</option>
-              <option>Varsha</option>
-              <option>Visitor</option>
-            </select>
-            <button
-              className="google-connect"
-              disabled={connecting || !authReady}
-              onClick={connectGoogle}
-            >
-              {connecting
-                ? "Connecting…"
-                : googleSession
-                  ? "Google connected"
-                  : "Sign in with Google"}
+            <button className="google-connect" onClick={() => signOut()}>
+              Sign out
             </button>
             <span className="profile">{actor[0]}</span>
           </div>
@@ -1247,7 +1331,6 @@ export default function Home() {
                 className="icon-button"
                 aria-label="Refresh data"
                 onClick={() => {
-                  refresh();
                   refreshSheet();
                 }}
               >
@@ -1290,20 +1373,14 @@ export default function Home() {
           )}
           <p className="source-status" role="status">
             {sheetStatus}
-            {sheetTime ? " · " + sheetTime : ""}.{" "}
-            {destination === "google"
-              ? "Save destination: Google Sheets" +
-                (googleSession ? "" : " · sign in to save")
-              : "Save destination: this browser only"}
-            .
+            {sheetTime ? " · " + sheetTime : ""}. Save destination: Google
+            Sheets.
           </p>
           {error && (
             <div className="alert" role="alert">
               {error}
               {setup && (
-                <p>
-                  Enable browser storage for this site to save your records.
-                </p>
+                <p>Reconnect to Google Sheets before editing your records.</p>
               )}
             </div>
           )}
@@ -1321,7 +1398,11 @@ export default function Home() {
           {page === "Dashboard" && (
             <>
               <div className="overview-heading">
-                <h2>Your money at a glance</h2>
+                <h2>
+                  {period === "All Time"
+                    ? "Your all-time savings"
+                    : "Your money at a glance"}
+                </h2>
                 <span>
                   {range[0]} — {range[1]}
                 </span>
@@ -1348,7 +1429,12 @@ export default function Home() {
                   "var(--purple)",
                   "Investment",
                 )}
-                {card("Net cash flow", stats.net, previous.net, "var(--text)")}
+                {card(
+                  "Total savings",
+                  stats.income - stats.expense,
+                  previous.income - previous.expense,
+                  "var(--text)",
+                )}
               </div>
               <div className="dashboard-grid">
                 <section className="card cash-chart">
@@ -1569,6 +1655,13 @@ export default function Home() {
                 </div>
               </div>
               <div className="transaction-filters">
+                <input
+                  aria-label="Search transactions"
+                  type="search"
+                  placeholder="Search merchant, notes, tag or account"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
                 <select
                   aria-label="Tag filter"
                   value={tagFilter}
@@ -1606,11 +1699,38 @@ export default function Home() {
                   }}
                 >
                   <option value="">All accounts</option>
-                  {data.accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
+                  {accountOptions.map((value) => (
+                    <option key={value} value={value}>
+                      {accountName(value)}
                     </option>
                   ))}
+                </select>
+                <select
+                  aria-label="Payment method filter"
+                  value={paymentFilter}
+                  onChange={(e) => setPaymentFilter(e.target.value)}
+                >
+                  <option value="">All payment methods</option>
+                  {Array.from(
+                    new Set(
+                      data.transactions
+                        .map((row) => row.payment)
+                        .filter(Boolean),
+                    ),
+                  )
+                    .sort()
+                    .map((value) => (
+                      <option key={value}>{value}</option>
+                    ))}
+                </select>
+                <select
+                  aria-label="Receipt filter"
+                  value={receiptFilter}
+                  onChange={(e) => setReceiptFilter(e.target.value)}
+                >
+                  <option value="">All receipts</option>
+                  <option value="with">With receipts</option>
+                  <option value="without">Without receipts</option>
                 </select>
                 <input
                   aria-label="Minimum amount"
@@ -1634,13 +1754,21 @@ export default function Home() {
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                   <option value="amount">Highest amount</option>
+                  <option value="amount-low">Lowest amount</option>
+                  <option value="merchant">Merchant A–Z</option>
+                  <option value="merchant-desc">Merchant Z–A</option>
                 </select>
                 <button
                   onClick={() => {
                     setTagFilter("");
                     setAccountFilter("");
                     setTypeFilter("");
+                    setPaymentFilter("");
+                    setReceiptFilter("");
                     setSearch("");
+                    setPerson("Combined");
+                    setPeriod("All Time");
+                    setSort("newest");
                     setMin("");
                     setMax("");
                   }}
@@ -1872,7 +2000,7 @@ export default function Home() {
                 Run due schedules
               </button>
               <p>
-                Creates due transactions in this browser. Nothing runs when the
+                Saves due transactions to Google Sheets. Nothing runs when the
                 website is closed.
               </p>
             </div>
@@ -1941,7 +2069,7 @@ export default function Home() {
                   ))}
                 {!data.audit.length && (
                   <div className="empty">
-                    Changes saved in this browser will appear here.
+                    Changes saved to Google Sheets will appear here.
                   </div>
                 )}
               </div>
@@ -2002,9 +2130,9 @@ export default function Home() {
             <section className="card settings">
               <h2>Your space, your way</h2>
               <p>
-                Read the public sheet without signing in, or sign in with Google
-                to save changes to the shared workbook. Browser-only records
-                remain private to this browser.
+                Your approved Google account is required to view and update the
+                shared workbook. Financial records are fetched directly from
+                Google Sheets.
               </p>
               <label>
                 Appearance
@@ -2045,9 +2173,9 @@ export default function Home() {
               <p>
                 Currency: INR · Indian number formatting
                 <br />
-                Storage: this browser · updates shared with tabs on this site
+                Storage: Google Sheets · no browser financial cache
                 <br />
-                Audit actor: {actor} (unverified)
+                Audit actor: {googleSession.email}
               </p>
               <button
                 className="primary"
@@ -2071,19 +2199,6 @@ export default function Home() {
                   ? "Signed in as " + googleSession.email
                   : "Sign in with an account that can edit this workbook to save changes to Google Sheets."}
               </p>
-              <label>
-                Save destination
-                <select
-                  aria-label="Save destination"
-                  value={destination}
-                  onChange={(e) =>
-                    chooseDestination(e.target.value as "google" | "browser")
-                  }
-                >
-                  <option value="google">Google Sheets</option>
-                  <option value="browser">This browser only</option>
-                </select>
-              </label>
               <label>
                 Google Web OAuth client ID
                 <input
@@ -2114,18 +2229,7 @@ export default function Home() {
                   {connecting ? "Connecting…" : "Sign in with Google"}
                 </button>
                 {googleSession && (
-                  <button
-                    onClick={() => {
-                      disconnectGoogle();
-                      setGoogleSession(null);
-                      setStatus("Sign in to save");
-                      setNotice(
-                        "Disconnected. Sign in again before saving to Google Sheets.",
-                      );
-                    }}
-                  >
-                    Disconnect
-                  </button>
+                  <button onClick={() => signOut()}>Sign out</button>
                 )}
               </div>
               <details className="google-setup">
@@ -2162,52 +2266,65 @@ export default function Home() {
               <p>
                 First connection creates recovery copies of the ledger, tags and
                 summaries within this workbook, adds stable IDs, and prepares
-                supporting tabs. Browser access tokens are kept only in memory.
+                supporting tabs. Your short-lived login is kept in this tab’s
+                session storage so refreshes do not require another sign-in.
                 Version checks reduce conflicts, but browser-only writes cannot
                 guarantee a lock across devices or manual sheet edits.
               </p>
               <hr />
-              <h3>Public Google Sheet</h3>
+              <h3>Google Sheet</h3>
               <p>
                 {sheetStatus}
                 {sheetTime ? " · last read " + sheetTime : ""}. Refreshes every
-                15 seconds while open. Local edits are preserved.
+                15 seconds while open. Failed requests show an error without a
+                cached fallback.
               </p>
               <div className="row-actions">
-                <button onClick={refreshSheet}>
+                <button onClick={() => refreshSheet()}>
                   <RefreshCw size={15} />
-                  Refresh public sheet
+                  Refresh Google Sheet
                 </button>
                 <a href={SHEET_URL} target="_blank" rel="noreferrer">
                   Open Google Sheet ↗
                 </a>
               </div>
               <p>
-                Browser-only changes stay on this device. Signed-in sheet saves
-                are shared through the workbook. If the source sheet has no
-                stable transaction IDs, rows are matched by position; avoid
-                reordering rows while keeping local edits.
+                All saves update the shared workbook after Google confirms the
+                request.
               </p>
               <hr />
               <h3>Your data & backups</h3>
               <p>
-                Signed-in saves update the workbook. Browser-only records remain
-                on this device until you explicitly publish them. Clearing site
-                data removes these records. Download a JSON backup regularly.
+                Download a JSON export fetched directly from Google Sheets.
+                Exports are never used as a fallback or restored into browser
+                storage.
               </p>
               <div className="row-actions">
                 <button
                   onClick={async () => {
                     try {
-                      const current = await readSnapshot();
+                      const current = (await readGoogleSnapshot()).data;
                       const url = URL.createObjectURL(
-                        new Blob([backupText(current)], {
-                          type: "application/json",
-                        }),
+                        new Blob(
+                          [
+                            JSON.stringify(
+                              {
+                                schemaVersion: 1,
+                                exportedAt: new Date().toISOString(),
+                                data: current,
+                              },
+                              null,
+                              2,
+                            ),
+                          ],
+                          {
+                            type: "application/json",
+                          },
+                        ),
                       );
                       const a = document.createElement("a");
                       a.href = url;
-                      a.download = "WealthTrack-backup-" + today() + ".json";
+                      a.download = "Budget Tracker-backup-" + today() + ".json";
                       a.click();
                       setTimeout(() => URL.revokeObjectURL(url), 1000);
                     } catch (e: any) {
@@ -2218,40 +2335,11 @@ export default function Home() {
                   <Download size={15} />
                   Download JSON backup
                 </button>
-                <label className="import-button">
-                  Restore JSON backup
-                  <input
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        if (file.size > 20000000)
-                          throw Error("Backup must be under 20 MB.");
-                        if (
-                          !confirm(
-                            "Replace this browser’s records with the selected backup? Download a backup first if you want to keep them.",
-                          )
-                        )
-                          return;
-                        await importBackup(await file.text());
-                        await refresh();
-                        channel.current?.postMessage("changed");
-                        setNotice("Backup restored in this browser");
-                      } catch (error: any) {
-                        setError(error.message);
-                      } finally {
-                        e.target.value = "";
-                      }
-                    }}
-                  />
-                </label>
               </div>
             </section>
           )}
           <footer>
-            <span className="brand-small">wealthtrack.</span>
+            <span className="brand-small">budget tracker.</span>
             <span>A little more clarity. A lot more possibility.</span>
             <span>Ram & Varsha’s shared space</span>
           </footer>
@@ -2362,21 +2450,19 @@ export default function Home() {
                         "Other",
                       ]}
                     />
-                    <Select
-                      label="From account (optional)"
+                    <Field
+                      label="From account"
                       name="account"
-                      value={modal.record.account}
-                      options={data.accounts
-                        .filter((a) => a.status === "Active")
-                        .map((a) => ({ value: a.id, label: a.name }))}
+                      value={accountName(modal.record.account)}
+                      maxLength={120}
+                      placeholder="Enter account name"
                     />
-                    <Select
-                      label="To account (transfers)"
+                    <Field
+                      label="To account"
                       name="toAccount"
-                      value={modal.record.toAccount}
-                      options={data.accounts
-                        .filter((a) => a.status === "Active")
-                        .map((a) => ({ value: a.id, label: a.name }))}
+                      value={accountName(modal.record.toAccount)}
+                      maxLength={120}
+                      placeholder="Enter account name"
                     />
                     <Field
                       label="Notes"
@@ -2548,21 +2634,19 @@ export default function Home() {
                                 "Other",
                               ]}
                             />
-                            <Select
-                              label="Account"
+                            <Field
+                              label="From account"
                               name="account"
-                              value={modal.record.account}
-                              options={data.accounts
-                                .filter((a) => a.status === "Active")
-                                .map((a) => ({ value: a.id, label: a.name }))}
+                              value={accountName(modal.record.account)}
+                              maxLength={120}
+                              placeholder="Enter account name"
                             />
-                            <Select
-                              label="Destination account"
+                            <Field
+                              label="To account"
                               name="toAccount"
-                              value={modal.record.toAccount}
-                              options={data.accounts
-                                .filter((a) => a.status === "Active")
-                                .map((a) => ({ value: a.id, label: a.name }))}
+                              value={accountName(modal.record.toAccount)}
+                              maxLength={120}
+                              placeholder="Enter account name"
                             />
                             <Field
                               label="Next due date"
@@ -2614,9 +2698,7 @@ export default function Home() {
               <div className="form-footer">
                 <small>
                   <Check size={13} />
-                  {destination === "google"
-                    ? "Saved after Google Sheets confirms"
-                    : "Saved after browser storage confirms"}
+                  Saved after Google Sheets confirms
                 </small>
                 <button
                   type="button"
@@ -2676,7 +2758,7 @@ export default function Home() {
                 onClick={() => {
                   setModal(null);
                   setConflict(null);
-                  refresh();
+                  refreshSheet();
                 }}
               >
                 Reload latest
@@ -2730,7 +2812,6 @@ export default function Home() {
                 className="primary"
                 disabled={!googleSession || saving}
                 onClick={async () => {
-                  chooseDestination("google");
                   if (await mutate("transactions", "create", detail))
                     setDetail(null);
                 }}
@@ -2738,6 +2819,30 @@ export default function Home() {
                 Save to Google Sheet
               </button>
             )}
+            <Receipts
+              transaction={
+                data.transactions.find((row) => row.id === detail.id) || detail
+              }
+              disabled={saving}
+              onAttach={async (receipts) => {
+                const latest = data.transactions.find(
+                  (row) => row.id === detail.id,
+                );
+                if (!latest)
+                  throw Error(
+                    "Transaction is no longer available. Refresh Google Sheets.",
+                  );
+                if (
+                  !(await mutate("transactions", "edit", {
+                    ...latest,
+                    receipts,
+                  }))
+                )
+                  throw Error(
+                    "Google Sheets did not confirm the receipt link. Retry the same file after reconnecting.",
+                  );
+              }}
+            />
             <h3>History</h3>
             {data.audit
               .filter((a) => a.entityId === detail.id)

@@ -34,6 +34,7 @@ const LEDGER_META = [
   "toAccount",
   "fingerprint",
   "typeOverride",
+  "receipts",
 ];
 const TAG_META = [
   "id",
@@ -211,7 +212,7 @@ async function prepare() {
       "The existing Expense Ledger and Expense Tags tabs are required.",
     );
   const [lh, th, settings] = await values([
-    bounded(ledger, 22, 1),
+    bounded(ledger, 23, 1),
     bounded(tags, 16, 1),
     ...(sheets.some((s: any) => s.title === "App Settings")
       ? ["'App Settings'!A1:H1"]
@@ -238,11 +239,26 @@ async function prepare() {
     [...Object.values(CLOUD_TABS), "Audit Log"].every((title) =>
       sheets.some((s: any) => s.title === title),
     )
-  )
+  ) {
+    // Upgrade existing app metadata without touching financial cells or formulas.
+    if (lh[0]?.[22] !== "receipts") {
+      const requests: any[] = [];
+      if (ledger.gridProperties.columnCount < 23)
+        requests.push({
+          appendDimension: {
+            sheetId: ledger.sheetId,
+            dimension: "COLUMNS",
+            length: 23 - ledger.gridProperties.columnCount,
+          },
+        });
+      requests.push(cellRequest(ledger.sheetId, 1, 23, ["receipts"]));
+      await batch(requests);
+    }
     return;
+  }
   const [ld, tg, type, summary, invest] = await values(
     [
-      bounded(ledger, 22, 5000),
+      bounded(ledger, 23, 5000),
       bounded(tags, 16),
       "'Expense Ledger'!D2",
       "'Monthly Expense Tracker'!A1:O1100",
@@ -293,7 +309,7 @@ async function prepare() {
     );
   }
   for (const [s, cols] of [
-    [ledger, 22],
+    [ledger, 23],
     [tags, 16],
   ] as const)
     if (s.gridProperties.columnCount < cols)
@@ -402,7 +418,7 @@ export async function readGoogleSnapshot() {
   const ranges = [
     bounded(
       sheets.find((s: any) => s.title === "Expense Ledger"),
-      22,
+      23,
       5000,
     ),
     bounded(
@@ -516,6 +532,7 @@ export function recordRequests(
       record.toAccount || "",
       "",
       record.type,
+      JSON.stringify(record.receipts || []),
     ];
     const requests = [
       cellRequest(sheetId, row, 2, [record.description, record.tag]),

@@ -11,6 +11,12 @@ import { fixture } from "./sheets-fixture";
 async function signed<T>(fn: (f: ReturnType<typeof fixture>) => Promise<T>) {
   const f = fixture(),
     originalFetch = globalThis.fetch;
+  const authStorage = new Map<string, string>();
+  (globalThis as any).sessionStorage = {
+    getItem: (key: string) => authStorage.get(key) || null,
+    setItem: (key: string, value: string) => authStorage.set(key, value),
+    removeItem: (key: string) => authStorage.delete(key),
+  };
   globalThis.fetch = f.fetcher;
   (globalThis as any).window = {
     google: {
@@ -39,6 +45,7 @@ async function signed<T>(fn: (f: ReturnType<typeof fixture>) => Promise<T>) {
     globalThis.fetch = originalFetch;
     delete (globalThis as any).window;
     delete (globalThis as any).localStorage;
+    delete (globalThis as any).sessionStorage;
   }
 }
 const tx = {
@@ -172,4 +179,31 @@ test("lost staging response retries the same pending row", () =>
     await saveGoogle(operation);
     assert.equal(f.grids["Expense Ledger"].length, 3);
     assert.equal(f.grids["Audit Log"].length, 2);
+  }));
+
+test("transaction receipt links survive a Sheets save and readback", () =>
+  signed(async (f) => {
+    const receipt = {
+      id: "receipt-file",
+      name: "bill.png",
+      mimeType: "image/png",
+      size: 100,
+      uploadedAt: "2026-11-01",
+    };
+    const saved = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: {
+        ...tx,
+        account: "Free text source",
+        toAccount: "Free text destination",
+        receipts: [receipt],
+      },
+      operationId: "receipt-op",
+      actor: "ignored",
+    });
+    assert.deepEqual(saved.record.receipts, [receipt]);
+    assert.deepEqual(JSON.parse(f.grids["Expense Ledger"].at(-1)![22]), [
+      receipt,
+    ]);
   }));

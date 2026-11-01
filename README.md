@@ -1,52 +1,48 @@
-# WealthTrack — static site with Google Sheets saves
+# Budget Tracker
 
-WealthTrack remains a static GitHub Pages website. **There is no application backend or Apps Script.** Public sheet reads work without signing in. To write back to the existing workbook, the browser uses Google Identity Services and the Google Sheets API with your Google account's edit permission.
+A static GitHub Pages app for Ram and Varsha. Google Sheets is the sole source of financial records; Google Drive holds uploaded bills and receipts. There is no application backend or Apps Script.
+
+## Access and sessions
+
+The first screen requires Google sign-in. Only verified profiles for `ramasami.official@gmail.com` and `tnvarsha.99@gmail.com` are accepted. The supplied public Web OAuth client ID is configured by default; no client secret is included in the site.
+
+A short-lived Google access token and its expiry are saved in the current tab's `sessionStorage`, so refreshing the page does not open another login prompt while the token is valid. On every reload, the app verifies that token and the approved account with Google before fetching the workbook. The session ends on sign-out, expiry, or closing the tab. Expired tokens require sign-in again; this static app does not store refresh tokens. Session storage is readable by scripts on this origin, so treat it as a short-lived browser credential. Neither session credentials nor receipt bytes are included in exports.
+
+In Google Cloud, enable **Google Sheets API** and **Google Drive API**. Keep the OAuth app External / Testing with only the two approved emails as test users. Add these authorized JavaScript origins to the Web application client:
+
+- `http://127.0.0.1:3000`
+- `http://localhost:3000`
+- `https://ramasami.github.io`
+
+Redirect URIs are not needed for this popup token flow. The app requests `spreadsheets`, `drive.file`, `openid`, email and profile scopes. Users must approve file access for receipt uploads. An optional `NEXT_PUBLIC_GOOGLE_CLIENT_ID` build variable or Settings client ID can override the default.
+
+**Workbook permissions enforce data privacy.** GitHub Pages serves public application files, and client-side checks alone cannot protect a publicly shared spreadsheet. Set the workbook's General access to **Restricted** and grant editor access only to the two approved accounts. The app uses authenticated Sheets requests, so it does not need a public workbook. Keep the Google test-user list restricted too.
+
+## Data behavior
 
 Workbook: `12AisxtgYgO2fN2tNzbzDNfX4hyAZvksyV2DtOInc5Ls`.
 
-## Enable Google sign-in once
+Every startup fetches fresh records from Google Sheets after validating the saved login. There are no anonymous CSV reads, IndexedDB reads or writes, local financial snapshots, merges with browser copies, or browser-only save modes in the application flow. Old browser financial records are ignored. Browser storage is used only for the login session, OAuth client configuration and display theme.
 
-A **Web application OAuth client ID** must be registered in your Google Cloud project. The prior clasp CLI authorization cannot be used as a browser OAuth client. No client secret belongs in this app.
+Failed reads and writes clear the displayed financial snapshot and show an error/retry screen. A failed write never silently switches to browser storage. Retrying a pending write uses operation metadata and audit receipts to check the outcome. A Google save is reported as successful only after readback confirms it. JSON exports fetch a fresh Sheet snapshot; reports export the current successfully fetched view. Neither is used as an offline fallback, and local backup restore is disabled.
 
-1. Open [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create/select a project, and enable the **Google Sheets API**.
-2. Configure **Google Auth Platform** (app branding and audience). For an external app in Testing, add only `ramasami.official@gmail.com` and `tnvarsha.99@gmail.com` as test users. Keep the app in Testing to restrict Sheets authorization to these accounts. Each account needs edit permission on the workbook.
-3. Create an OAuth client with application type **Web application**. Add these **authorized JavaScript origins**:
-   - `http://127.0.0.1:3000`
-   - `http://localhost:3000`
-   - When deployed, your GitHub Pages origin, such as `https://USERNAME.github.io` (no repository path).
-4. Your supplied OAuth client ID is already configured in the app. To use a different client, open **Settings → Google Sheets saves**, paste its ID ending in `.apps.googleusercontent.com`, and click **Save client ID**.
-5. Click **Sign in with Google**, choose the account that can edit the workbook, and approve the requested access. **Save destination: Google Sheets** is the default.
+Transactions write to **Expense Ledger**; tags come only from **Expense Tags**. Historical ledger categories missing from that list remain readable but are not offered as new tags. From account and To account are text inputs. Entering an existing managed account's name links its ID for balance calculations; other names remain free text. Transfers require two different accounts.
 
-The ID is public configuration and the supplied ID is included by default for both local and GitHub Pages builds. To override it for every GitHub Pages visitor, set the GitHub Actions repository variable `GOOGLE_CLIENT_ID`; the supplied workflow passes it as `NEXT_PUBLIC_GOOGLE_CLIENT_ID` during the static build. For local builds, an optional `.env.local` can contain `NEXT_PUBLIC_GOOGLE_CLIENT_ID=...`. The Settings value overrides the build value.
+Transactions support dedicated search, date and person filters, tag/type/account/payment/receipt filters, minimum/maximum amounts, and date/amount/merchant sorting. Account filtering matches both the source and destination. Reset clears the transaction filters and returns to All Time / Combined.
 
-The supplied client ID is configured. Live sign-in still requires the matching authorized origins, Sheets API access, and the two test users in Google Cloud. Live writes remain unverified until an approved user signs in. Simulated API tests do not confirm a live connection.
+The dashboard opens in **All Time** and shows **Total savings = income − expenses**, including money contributed to investments. Net cash movement additionally subtracts investment contributions. Transfers do not inflate income or expenses.
 
-References: [Google token model for browser apps](https://developers.google.com/identity/oauth2/web/guides/use-token-model), [Google OAuth client setup](https://developers.google.com/workspace/guides/create-credentials).
+## Bills and receipts
 
-## What a Google save does
+Save a transaction, then click its merchant/description to open the detail panel. Upload JPEG, PNG, WebP or PDF files up to **5 MB each**, up to **20 attachments per transaction**.
 
-- Transactions are written to the original **Expense Ledger**. Tags update **Expense Tags**.
-- Accounts/ledgers are written to **Accounts**. Budgets, goals, recurring schedules, holdings and settings use supporting tabs in the **same workbook**.
-- On first connection, setup checks the existing headers and formulas. It creates hidden recovery copies of the ledger, tags and summary tabs in the workbook before applying metadata and summary changes in the same atomic batch. It adds stable IDs, versions, status, and operation metadata; it extends the Type array formula to respect explicit transaction types and adjusts SUMIFS summaries to exclude deleted records. The existing Month array formula and original financial values remain intact.
-- Saves check the loaded record version and source fingerprint, write the financial change and **Audit Log** event in one batch, then read the result back before displaying **Saved to Google Sheets**. New records first reserve a pending row; pending rows have no financial amount and are ignored by the app until finalized.
-- A failed or expired Google authorization leaves the form open. **The app never silently changes a failed Google save into a local save.** Retrying the same unchanged form reuses its operation ID. Pending row markers and audit receipts help recover lost responses.
-- Google access tokens remain only in memory; they are not stored in browser storage, JSON backups, or the static export. Reloading the website or token expiration requires another sign-in. Audit actors for Google writes use the account returned by Google's user-info endpoint.
+Files are uploaded directly to the signed-in user's Google Drive and shared as reader with the other approved account; no public file link is created. Metadata and Drive IDs are saved in the transaction's `receipts` column (**W**) in Expense Ledger. The app adds this column to an existing compatible ledger without changing the financial cells or array formulas. Content hashes allow retries of the same transaction/file upload to reuse existing files. A file upload and the Sheet link are separate Google operations: if linking fails, retry the same file after reconnecting to complete the link. A file may remain in Drive if linking is abandoned.
 
-The first setup and live writes have **not been run on your real workbook** during this implementation because the Web OAuth client ID is missing.
-
-## Browser-only records and public reading
-
-Select **Settings → Save destination → This browser only** if you explicitly want local saves. These records use IndexedDB and remain separate from Google Sheets. Tabs on the same origin share browser data; other devices do not.
-
-Existing browser-only records are not automatically uploaded. After signing in, use **Save to Google Sheet** on the account/tag/budget/goal card or transaction details, or open the local record and save it in Google mode. Publish referenced tags and accounts first. Locally edited sheet records can be saved by editing them in Google mode; if the source changed, review the conflict before reapplying.
-
-Without sign-in, the app reads the public ledger/tags anonymously every 15 seconds while visible. With sign-in, refreshes read all app-managed tabs through the Sheets API. Browser cache/local overrides remain available if a read fails. Financial data is fetched at runtime and is not baked into the deployed assets.
-
-Use **Settings → Download JSON backup** for a full browser backup and **Restore JSON backup** to move local records. Reports export CSV, Excel and PDF. Browser-only data is removed when site data is cleared. Changing origins from localhost to GitHub Pages gives a separate browser database.
+Receipt images and PDF bytes are fetched only when **View** is clicked, never while loading the dashboard or listing transactions. Image elements also use native lazy loading. Image object URLs are released when the preview closes or the user signs out. PDF files offer a download link. An inaccessible or deleted Drive file shows an error; no cached image fallback is used.
 
 ## Run locally
 
-Requires Node.js 22+ and Python 3 for the optional static preview.
+Requires Node.js 22+ and Python 3 for the static preview.
 
 ```sh
 npm ci
@@ -54,26 +50,15 @@ npm run build
 npm start
 ```
 
-Open http://127.0.0.1:3000. `npm start` serves only `out/` files; it has no financial API. `npm run dev` is available for development.
+Open http://127.0.0.1:3000. `npm start` serves only static `out/` files. `npm run dev` is available for development.
 
-## Deploy to GitHub Pages
+## GitHub Pages
 
-1. Push the project to your repository's `main` branch.
-2. Select **Settings → Pages → Source → GitHub Actions** in GitHub.
-3. Optionally configure the public repository variable `GOOGLE_CLIENT_ID`.
-4. The included workflow builds and deploys only `out/`.
+Repository: https://github.com/Ramasami/Expense-Tracker
 
-The workflow uses the Pages-provided base path for repository sites. For a manual project-path build, use `PAGES_BASE_PATH=/Expense_Tracker npm run build`. For root hosting, omit that variable. No GitHub repository has been created or published by this session.
+The workflow deploys `out/` after pushes to `main`. GitHub Settings → Pages → Source must be **GitHub Actions**. The workflow uses the Pages-provided base path, and the app has no server endpoints. The optional repository variable `GOOGLE_CLIENT_ID` overrides the default public client ID during the build.
 
-## Limits of the browser-only architecture
-
-Version/fingerprint checks can detect records changed before a save, but the Sheets API does not provide a shared compare-and-swap lock for these cell writes. Two devices that pass the checks simultaneously may still race; direct spreadsheet edits also bypass application checks. This app does **not** claim guaranteed cross-device concurrency protection or tamper-proof audit history. A shared coordinator would be needed for stronger guarantees.
-
-Ledger writes are bounded to the original 5,000-row array/formula ranges. Reads of supporting app tables currently use up to 10,000 rows. New records over those limits require extending the integration. Bulk operations commit separately per record and can partially finish on errors. Avoid manual changes to IDs and operation metadata. Initial records without native IDs are matched by row until first setup assigns IDs.
-
-Recurring transactions execute only while the site is open through **Run due schedules**, in the selected save destination. No schedules run while the site is closed. Investment figures are contributions, not market values. Cash movement = income − expenses − investment contributions. Savings rate = (income − expenses) / income. Transfers conserve household cash.
-
-## Checks
+## Validation and limits
 
 ```sh
 npm test
@@ -82,14 +67,10 @@ npm run build
 npm run test:browser
 ```
 
-Tests cover browser persistence, direct Sheets requests, ledger/account writes, readback, response-loss retries, stale versions, setup recovery copies, array-formula preservation, Google sign-in UI using a simulated Google API, and signed-out save failures without local fallback. They do not write test financial records into your real workbook.
+Tests cover login gating, approved/rejected and expired sessions, refresh without a new login, fresh sheet values after reload, failed reads/writes without local fallback, direct Google saves and readback, account text, transaction filters/sorting, receipt metadata, and lazy receipt downloads. Google requests are simulated in automated tests; they do not add financial test records to the real workbook. Legacy pure operation and storage utilities retain their unit tests, but the app does not invoke their financial storage functions.
 
-The superseded backend and prior local CLI credentials remain under ignored `work/` for recovery. Neither is included in the static build or GitHub Pages artifact. Do not upload `work/` or hidden environment files manually.
+First-time workbook setup creates recovery copies of the original ledger, tags and summaries before adding stable IDs, versions and audit metadata. Existing Type/Month array formulas are preserved; the Type formula supports explicit overrides and summaries exclude deleted records. The app's version/fingerprint checks do not provide an atomic lock across devices or manual spreadsheet edits. Concurrent writes can still race. Ledger writes are bounded to 5,000 formula rows; supporting tables are read up to 10,000 rows. Bulk operations can partially finish. Recurring schedules execute only while the app is open through Run due schedules.
 
-## Approved Google accounts
+The superseded backend and CLI authorization remain under ignored `work/` for recovery and are excluded from Git and static output. Do not upload `work/` or environment files.
 
-The app accepts only verified Google profiles for `ramasami.official@gmail.com` and `tnvarsha.99@gmail.com`. Other accounts are rejected before any authenticated Sheets requests or workbook setup. This browser check is a convenience guard, not a security boundary: enforce access with Google's test-user list and workbook sharing permissions. A static GitHub Pages site remains public, and anonymous reads still expose any publicly shared workbook data. Changing workbook sharing to Restricted also requires signed-in reads; anonymous imports will stop.
-# Expense-Tracker
-# Expense-Tracker
-# Expense-Tracker
-# Expense-Tracker
+Google references: [browser token model](https://developers.google.com/identity/oauth2/web/guides/use-token-model), [Drive uploads](https://developers.google.com/workspace/drive/api/guides/manage-uploads), [Drive downloads](https://developers.google.com/workspace/drive/api/guides/manage-downloads).

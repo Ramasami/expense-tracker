@@ -57,3 +57,15 @@ test("blank sheet rows retain row-based identities", () => {
   assert.equal(d.transactions[0].sourceRow, 3);
   assert.equal(d.transactions[0].id, "sheet-tx-3");
 });
+
+test("unknown ledger tags are never added to the selectable Expense Tags list", () => {
+  const result = snapshotFromCsv(
+    csv().replace("Groceries", "Unlisted ledger category"),
+    tags,
+  );
+  assert.equal(
+    result.tags.some((tag) => tag.name === "Unlisted ledger category"),
+    false,
+  );
+  assert.equal(result.transactions[0].tag, "Unlisted ledger category");
+});

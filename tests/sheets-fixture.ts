@@ -23,6 +23,7 @@ const headers = [
   "toAccount",
   "fingerprint",
   "typeOverride",
+  "receipts",
 ];
 const generic = [
   "ID",
@@ -115,7 +116,7 @@ export function fixture() {
       rowCount: title === "Expense Ledger" ? 5000 : 1000,
       columnCount:
         title === "Expense Ledger"
-          ? 22
+          ? 23
           : title === "Expense Tags"
             ? 16
             : title === "Audit Log"

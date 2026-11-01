@@ -5,10 +5,18 @@ import {
   currentGoogleSession,
   googleToken,
   disconnectGoogle,
+  restoreGoogleSession,
+  SESSION_KEY,
 } from "../lib/google-auth";
 
 test("Google sign-in accepts only the two verified approved accounts and clears rejected sessions", async () => {
   const originalFetch = globalThis.fetch;
+  const authStorage = new Map<string, string>();
+  (globalThis as any).sessionStorage = {
+    getItem: (key: string) => authStorage.get(key) || null,
+    setItem: (key: string, value: string) => authStorage.set(key, value),
+    removeItem: (key: string) => authStorage.delete(key),
+  };
   let profile: { email: string; email_verified: boolean };
   let requests = 0;
   (globalThis as any).window = {
@@ -64,10 +72,44 @@ test("Google sign-in accepts only the two verified approved accounts and clears 
       assert.throws(googleToken, /Sign in to Google/);
     }
     assert.equal(requests, 7);
+    authStorage.set(
+      SESSION_KEY,
+      JSON.stringify({
+        accessToken: "test-token",
+        expiresAt: Date.now() + 3600000,
+      }),
+    );
+    profile = { email: "tnvarsha.99@gmail.com", email_verified: true };
+    assert.equal(
+      (await restoreGoogleSession())?.email,
+      "tnvarsha.99@gmail.com",
+    );
+    assert.equal(requests, 8);
+    disconnectGoogle();
+    authStorage.set(
+      SESSION_KEY,
+      JSON.stringify({ accessToken: "expired", expiresAt: Date.now() - 1 }),
+    );
+    assert.equal(await restoreGoogleSession(), null);
+    assert.equal(requests, 8);
+    assert.equal(authStorage.has(SESSION_KEY), false);
+    authStorage.set(
+      SESSION_KEY,
+      JSON.stringify({
+        accessToken: "test-token",
+        expiresAt: Date.now() + 3600000,
+        email: "tnvarsha.99@gmail.com",
+      }),
+    );
+    profile = { email: "outsider@example.com", email_verified: true };
+    await assert.rejects(restoreGoogleSession(), /not authorized/);
+    assert.equal(currentGoogleSession(), null);
+    assert.equal(authStorage.has(SESSION_KEY), false);
   } finally {
     disconnectGoogle();
     globalThis.fetch = originalFetch;
     delete (globalThis as any).window;
     delete (globalThis as any).localStorage;
+    delete (globalThis as any).sessionStorage;
   }
 });

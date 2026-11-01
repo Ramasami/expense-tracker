@@ -1,4 +1,4 @@
-name: Deploy static WealthTrack to GitHub Pages
+name: Deploy static Budget Tracker to GitHub Pages
 on:
   push:
     branches: [main]

@@ -1632,3 +1632,67 @@ pre {
     width: 56px;
   }
 }
+
+.auth-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--soft);
+}
+.auth-card {
+  width: min(100%, 460px);
+  padding: 42px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--card);
+  box-shadow: 0 12px 45px #22222208;
+  text-align: center;
+}
+.auth-card .logo {
+  display: inline-flex;
+  margin-bottom: 24px;
+}
+.auth-card h1 {
+  font-size: 29px;
+  line-height: 1.2;
+  margin: 14px 0;
+}
+.auth-card p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.auth-card button {
+  margin: 16px 4px;
+  justify-content: center;
+}
+.auth-card small {
+  display: block;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.receipts {
+  margin: 22px 0;
+  padding: 20px 0;
+  border-block: 1px solid var(--border);
+}
+.receipts p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.receipt-upload {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.receipt-item {
+  margin: 14px 0;
+}
+.receipt-image {
+  display: block;
+  max-width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  margin-top: 12px;
+  border-radius: 12px;
+}

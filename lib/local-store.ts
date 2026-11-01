@@ -94,10 +94,10 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
       throw Error("Transfers need two different accounts.");
     for (const field of ["account", "toAccount"])
       if (
-        r[field] &&
-        !data.accounts.some((a) => a.id === r[field] && a.status === "Active")
+        typeof (r[field] || "") !== "string" ||
+        String(r[field] || "").length > 120
       )
-        throw Error("Select an active account.");
+        throw Error("Account names must be text under 120 characters.");
   } else if (!String(r.name || "").trim()) throw Error("Enter a name.");
   if (entity === "tags") {
     if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type))
