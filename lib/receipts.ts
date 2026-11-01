@@ -6,6 +6,7 @@ export type Receipt = {
   size: number;
   uploadedAt: string;
   originalSize?: number;
+  storage?: "shared-v1";
 };
 export type ReceiptProgress = {
   stage:
@@ -103,56 +104,93 @@ function validId(id: string) {
   if (!/^[\w-]+$/.test(id)) throw Error("Invalid receipt file ID.");
   return id;
 }
-function uploadBody(
-  body: Blob,
-  boundary: string,
+export const RECEIPT_SERVICE_URL =
+  process.env.NEXT_PUBLIC_RECEIPT_SERVICE_URL ||
+  "https://script.google.com/macros/s/AKfycbzwm_f4JiRpMDYk1yrRdCi_nhRgcQZGSM3YuC6TXOxFoSP0nYA07_PqWu-HiXadW0Yw/exec";
+async function receiptService(
+  action: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  onProgress?: ReportProgress,
+): Promise<any> {
+  if (!RECEIPT_SERVICE_URL)
+    throw Error("Shared receipt storage has not been configured yet.");
+  const response = await fetch(RECEIPT_SERVICE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    body: JSON.stringify({ ...args, action, token: googleToken() }),
+    cache: "no-store",
+    redirect: "follow",
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(120000)])
+      : AbortSignal.timeout(120000),
+  });
+  if (!response.ok)
+    throw Error("Shared receipt service is unavailable. Retry when connected.");
+  let text = "";
+  if (response.body && onProgress) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let loaded = 0;
+    try {
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        loaded += part.value.byteLength;
+        if (loaded > 8 * 1024 * 1024)
+          throw Error("Receipt response exceeded its size limit.");
+        text += decoder.decode(part.value, { stream: true });
+        onProgress({
+          stage: "downloading",
+          loaded,
+          total: Number(response.headers.get("Content-Length")) || undefined,
+        });
+      }
+      text += decoder.decode();
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+  } else text = await response.text();
+  const result = JSON.parse(text);
+  if (!result.ok)
+    throw Error(
+      result.error || "The shared receipt operation was not confirmed.",
+    );
+  return result.result;
+}
+function uploadShared(
+  file: File,
+  url: string,
   onProgress?: ReportProgress,
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,createdTime",
-    );
-    xhr.setRequestHeader("Authorization", "Bearer " + googleToken());
-    xhr.setRequestHeader(
-      "Content-Type",
-      "multipart/related; boundary=" + boundary,
-    );
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", file.type);
     xhr.responseType = "json";
     xhr.timeout = 120000;
-    xhr.upload.onprogress = (event) =>
+    xhr.upload.onprogress = (e) =>
       onProgress?.({
         stage: "uploading",
-        loaded: event.loaded,
-        total: event.lengthComputable ? event.total : body.size,
+        loaded: e.loaded,
+        total: e.lengthComputable ? e.total : file.size,
       });
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.id)
-        resolve(xhr.response);
-      else
-        reject(
-          Error(
-            xhr.response?.error?.message ||
-              "Google Drive did not confirm the upload. Retry this file.",
-          ),
-        );
-    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300 && xhr.response?.id
+        ? resolve(xhr.response)
+        : reject(
+            Error("Google Drive did not confirm the upload. Retry this file."),
+          );
     xhr.onerror = () =>
-      reject(
-        Error(
-          "Receipt upload failed. Check your connection and retry this file.",
-        ),
-      );
+      reject(Error("Receipt upload failed. Check your connection and retry."));
     xhr.ontimeout = () =>
-      reject(
-        Error(
-          "Receipt upload timed out. Retry this file on a better connection.",
-        ),
-      );
+      reject(Error("Receipt upload timed out. Retry this file."));
     xhr.onabort = () => reject(Error("Receipt upload was cancelled."));
-    onProgress?.({ stage: "uploading", loaded: 0, total: body.size });
-    xhr.send(body);
+    onProgress?.({ stage: "uploading", loaded: 0, total: file.size });
+    xhr.send(file);
   });
 }
 export async function uploadReceipt(
@@ -173,82 +211,65 @@ export async function uploadReceipt(
     n.toString(16).padStart(2, "0"),
   ).join("");
   const key = transactionId.replace(/[^\w-]/g, "_") + "-" + hash;
-  // A retry reuses the same uploaded bytes instead of creating duplicate files.
-  const params = new URLSearchParams({
-    q: `trashed = false and appProperties has { key='budgetReceipt' and value='${key}' }`,
-    fields: "files(id,name,mimeType,size,createdTime)",
-    pageSize: "1",
+  onProgress?.({ stage: "compressing", loaded: 0 });
+  file = await compressReceipt(file);
+  if (file.size > 5 * 1024 * 1024)
+    throw Error(
+      "This image is still over 5 MB after compression. Choose a smaller image.",
+    );
+  const prepared = await receiptService("beginUpload", {
+    key,
+    name: file.name,
+    mimeType: file.type,
+    size: file.size,
+    origin: location.origin,
   });
-  let remote = (await (await drive("files?" + params)).json()).files?.[0];
-  if (!remote) {
-    onProgress?.({ stage: "compressing", loaded: 0 });
-    file = await compressReceipt(file);
-    if (file.size > 5 * 1024 * 1024)
-      throw Error(
-        "This image is still over 5 MB after compression. Choose a smaller image.",
-      );
-    const boundary = "budget_receipt_" + crypto.randomUUID();
-    const body = new Blob([
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
-      JSON.stringify({
-        name: file.name,
-        mimeType: file.type,
-        appProperties: { budgetReceipt: key },
-      }),
-      `\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`,
-      file,
-      `\r\n--${boundary}--\r\n`,
-    ]);
-    remote = await uploadBody(body, boundary, onProgress);
-  }
-  const id = validId(String(remote.id || ""));
-  onProgress?.({
-    stage: "sharing",
-    loaded: Number(remote.size || file.size),
-    total: Number(remote.size || file.size),
-  });
-  const other =
-    actor === "ramasami.official@gmail.com"
-      ? "tnvarsha.99@gmail.com"
-      : "ramasami.official@gmail.com";
-  const permissions = await (
-    await drive(`files/${id}/permissions?fields=permissions(emailAddress,role)`)
-  ).json();
-  if (
-    !permissions.permissions?.some(
-      (p: any) => p.emailAddress?.toLowerCase() === other,
-    )
-  ) {
-    await drive(`files/${id}/permissions?sendNotificationEmail=false`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "user",
-        role: "reader",
-        emailAddress: other,
-      }),
+  let receipt = prepared.receipt;
+  if (!receipt) {
+    const url = String(prepared.uploadUrl || "");
+    if (!/^https:\/\/www\.googleapis\.com\/upload\//.test(url))
+      throw Error("Invalid shared upload session.");
+    const uploaded = await uploadShared(file, url, onProgress);
+    onProgress?.({ stage: "sharing", loaded: file.size, total: file.size });
+    receipt = await receiptService("finishUpload", {
+      id: validId(uploaded.id),
     });
   }
-  onProgress?.({
-    stage: "done",
-    loaded: Number(remote.size || file.size),
-    total: Number(remote.size || file.size),
-  });
-  return {
-    id,
-    name: String(remote.name || file.name),
-    mimeType: remote.mimeType || file.type,
-    size: Number(remote.size || file.size),
-    originalSize,
-    uploadedAt: remote.createdTime || new Date().toISOString(),
-  };
+  onProgress?.({ stage: "done", loaded: receipt.size, total: receipt.size });
+  return { ...receipt, originalSize };
 }
+
 export async function receiptBlob(
   receipt: Receipt,
   onProgress?: ReportProgress,
   signal?: AbortSignal,
 ): Promise<Blob> {
   if (!TYPES.has(receipt.mimeType)) throw Error("Unsupported receipt format.");
+  if (receipt.storage === "shared-v1") {
+    onProgress?.({ stage: "downloading", loaded: 0 });
+    const result = await receiptService(
+      "download",
+      { id: validId(receipt.id) },
+      signal,
+      onProgress,
+    );
+    if (
+      result.mimeType !== receipt.mimeType ||
+      result.size > 5 * 1024 * 1024 ||
+      typeof result.data !== "string" ||
+      result.data.length > 7 * 1024 * 1024
+    )
+      throw Error("Invalid receipt response.");
+    const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
+    if (bytes.length !== result.size)
+      throw Error("Incomplete receipt download.");
+    onProgress?.({
+      stage: "downloading",
+      loaded: bytes.length,
+      total: bytes.length,
+    });
+    return new Blob([bytes], { type: result.mimeType });
+  }
   onProgress?.({ stage: "downloading", loaded: 0, total: receipt.size });
   const response = await drive(`files/${validId(receipt.id)}?alt=media`, {
     signal,
@@ -287,6 +308,8 @@ export async function receiptBlob(
 }
 
 export async function receiptDeleteInfo(receipt: Receipt) {
+  if (receipt.storage === "shared-v1")
+    return receiptService("info", { id: validId(receipt.id) });
   try {
     const file = await (
       await drive(
@@ -305,6 +328,14 @@ export async function receiptDeleteInfo(receipt: Receipt) {
   }
 }
 async function setReceiptTrashed(receipt: Receipt, trashed: boolean) {
+  if (receipt.storage === "shared-v1") {
+    const result = await receiptService(trashed ? "trash" : "restore", {
+      id: validId(receipt.id),
+    });
+    if (result.id !== receipt.id || result.trashed !== trashed)
+      throw Error("Shared Drive file update was not confirmed.");
+    return;
+  }
   const file = await (
     await drive(`files/${validId(receipt.id)}?fields=id,trashed`, {
       method: "PATCH",

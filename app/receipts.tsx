@@ -137,7 +137,7 @@ export default function Receipts({
         );
       if (!info.trashed && !info.canTrash)
         throw Error(
-          "Only the account that owns this Drive file can delete it. Sign in with the account that uploaded it. Nothing was removed.",
+          "Only the account that owns this Drive file can delete it. This is an older receipt. Its uploader must delete it or replace it with a new shared upload. Nothing was removed.",
         );
       if (!info.trashed) {
         await trashReceipt(receipt);
@@ -187,7 +187,8 @@ export default function Receipts({
         Select multiple images or PDFs. Large photos are compressed
         automatically. Images up to 20 MB; PDFs up to 5 MB; 20 receipts per
         transaction. Files are saved to Google Drive and shared with Ram and
-        Varsha. Open a receipt to load it.
+        Varsha. Either of you can delete new shared receipts. Open a receipt to
+        load it.
       </p>
       <label className="receipt-upload">
         {busy ? progress : "Upload bills or receipts"}

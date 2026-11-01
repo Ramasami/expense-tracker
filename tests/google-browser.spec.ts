@@ -1,3 +1,4 @@
+import { mockReceiptService } from "./receipt-service-helper";
 import { test, expect } from "@playwright/test";
 import { mockGoogle } from "./browser-helpers";
 
@@ -162,36 +163,10 @@ test("receipts upload to Drive, link to the sheet, and fetch image bytes only wh
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGqkAAAAASUVORK5CYII=",
     "base64",
   );
-  await page.route(
-    "https://www.googleapis.com/**drive/v3/**",
-    async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.get("alt") === "media") {
-        downloads++;
-        return route.fulfill({ contentType: "image/png", body: png });
-      }
-      if (url.pathname.startsWith("/upload/")) {
-        uploads++;
-        return route.fulfill({
-          json: {
-            id: "receipt-1",
-            name: "bill.png",
-            mimeType: "image/png",
-            size: png.length,
-          },
-        });
-      }
-      if (url.pathname.endsWith("permissions"))
-        return route.fulfill({
-          json: {
-            permissions: [
-              { emailAddress: "tnvarsha.99@gmail.com", role: "reader" },
-            ],
-          },
-        });
-      return route.fulfill({ json: { files: [] } });
-    },
-  );
+  await mockReceiptService(page, {
+    onUpload: () => uploads++,
+    onDownload: () => downloads++,
+  });
   await login(page);
   await page
     .locator("nav")
@@ -288,50 +263,17 @@ test("multiple receipts compress photos and show upload and lazy download progre
     if (req.url().includes("sheets.googleapis.com") && req.method() !== "GET")
       sheetWrites++;
   });
-  await page.route(
-    "https://www.googleapis.com/**drive/v3/**",
-    async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.get("alt") === "media") {
-        await downloadGate;
-        return route.fulfill({ contentType: "image/webp", body: imageBytes });
+  await mockReceiptService(page, {
+    onUpload: (file) => {
+      uploadedFiles++;
+      if (file.mimeType.startsWith("image/")) {
+        imageType = file.mimeType;
+        imageName = file.name;
+        imageBytes = file.bytes;
       }
-      if (url.pathname.startsWith("/upload/")) {
-        uploadedFiles++;
-        const body = route.request().postDataBuffer()!;
-        const jsonStart = body.indexOf(Buffer.from("\r\n\r\n")) + 4;
-        const jsonEnd = body.indexOf(Buffer.from("\r\n--"), jsonStart);
-        const metadata = JSON.parse(
-          body.subarray(jsonStart, jsonEnd).toString(),
-        );
-        const dataStart = body.indexOf(Buffer.from("\r\n\r\n"), jsonEnd) + 4;
-        const dataEnd = body.lastIndexOf(Buffer.from("\r\n--"));
-        const bytes = body.subarray(dataStart, dataEnd);
-        if (metadata.mimeType.startsWith("image/")) {
-          imageType = metadata.mimeType;
-          imageName = metadata.name;
-          imageBytes = bytes;
-        }
-        return route.fulfill({
-          json: {
-            id: "file-" + uploadedFiles,
-            name: metadata.name,
-            mimeType: metadata.mimeType,
-            size: bytes.length,
-          },
-        });
-      }
-      if (url.pathname.endsWith("permissions"))
-        return route.fulfill({
-          json: {
-            permissions: [
-              { emailAddress: "tnvarsha.99@gmail.com", role: "reader" },
-            ],
-          },
-        });
-      return route.fulfill({ json: { files: [] } });
     },
-  );
+    beforeDownload: () => downloadGate,
+  });
   await login(page);
   await page
     .locator("nav")
@@ -416,37 +358,7 @@ test("a partial receipt batch saves successful files and reports the failed file
   page,
 }) => {
   const { f } = await mockGoogle(page);
-  await page.route(
-    "https://www.googleapis.com/**drive/v3/**",
-    async (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname.startsWith("/upload/")) {
-        const body = route.request().postDataBuffer()!.toString();
-        if (body.includes('"name":"failed.pdf"'))
-          return route.fulfill({
-            status: 503,
-            json: { error: { message: "Upload temporarily unavailable" } },
-          });
-        return route.fulfill({
-          json: {
-            id: "good-file",
-            name: "good.pdf",
-            mimeType: "application/pdf",
-            size: 9,
-          },
-        });
-      }
-      if (url.pathname.endsWith("permissions"))
-        return route.fulfill({
-          json: {
-            permissions: [
-              { emailAddress: "tnvarsha.99@gmail.com", role: "reader" },
-            ],
-          },
-        });
-      return route.fulfill({ json: { files: [] } });
-    },
-  );
+  await mockReceiptService(page, { failName: "failed.pdf" });
   await login(page);
   await page
     .locator("nav")
@@ -675,4 +587,95 @@ test("an offline phone relaunch uses the app shell and cached data with edits di
     }),
   ).toBeVisible();
   await expect(offlinePage.locator("nav")).toHaveCount(0);
+});
+
+for (const uploader of [
+  "ramasami.official@gmail.com",
+  "tnvarsha.99@gmail.com",
+]) {
+  test(`shared receipt uploaded by ${uploader} can be deleted by the other account`, async ({
+    page,
+  }) => {
+    const { f, state } = await mockGoogle(page);
+    state.email = uploader;
+    const files = await mockReceiptService(page);
+    await login(page);
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page.locator(".merchant").first().click();
+    await expect(
+      page.getByLabel("Upload bill or receipt", { exact: true }),
+    ).toBeEnabled();
+    await page
+      .getByLabel("Upload bill or receipt", { exact: true })
+      .setInputFiles({
+        name: "shared.pdf",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("%PDF test"),
+      });
+    await expect(
+      page.getByRole("button", { name: "View shared.pdf", exact: true }),
+    ).toBeVisible();
+    expect(JSON.parse(f.grids["Expense Ledger"][1][22])[0].storage).toBe(
+      "shared-v1",
+    );
+    state.email =
+      uploader === "ramasami.official@gmail.com"
+        ? "tnvarsha.99@gmail.com"
+        : "ramasami.official@gmail.com";
+    await page.reload();
+    await expect(page.locator(".sync")).toContainText("Google connected");
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page.locator(".merchant").first().click();
+    await expect(
+      page.getByLabel("Delete receipt shared.pdf", { exact: true }),
+    ).toBeEnabled();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByLabel("Delete receipt shared.pdf", { exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "View shared.pdf", exact: true }),
+    ).toHaveCount(0);
+    expect(files.get("receipt-1").trashed).toBe(true);
+    expect(JSON.parse(f.grids["Expense Ledger"][1][22])).toEqual([]);
+  });
+}
+
+test("shared receipt deletion restores the owner file when the Sheet save fails", async ({
+  page,
+}) => {
+  const { f, state } = await mockGoogle(page);
+  state.email = "tnvarsha.99@gmail.com";
+  const files = await mockReceiptService(page);
+  const receipt = {
+    id: "shared-existing",
+    name: "rollback.pdf",
+    mimeType: "application/pdf",
+    size: 9,
+    uploadedAt: "2026-11-01",
+    storage: "shared-v1",
+  };
+  files.set(receipt.id, { ...receipt, trashed: false });
+  f.grids["Expense Ledger"][1][22] = JSON.stringify([receipt]);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page.locator(".merchant").first().click();
+  await expect(
+    page.getByLabel("Delete receipt rollback.pdf", { exact: true }),
+  ).toBeEnabled();
+  state.failWrites = true;
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Delete receipt rollback.pdf", { exact: true }).click();
+  await expect(page.locator(".receipts [role=alert]")).toContainText(
+    "file was restored",
+  );
+  expect(files.get(receipt.id).trashed).toBe(false);
+  expect(JSON.parse(f.grids["Expense Ledger"][1][22])).toHaveLength(1);
 });
