@@ -67,6 +67,14 @@ export async function compressReceipt(file: File): Promise<File> {
     image.close();
   }
 }
+class DriveRequestError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
 async function drive(path: string, init: RequestInit = {}, upload = false) {
   const response = await fetch(
     `https://www.googleapis.com/${upload ? "upload/" : ""}drive/v3/${path}`,
@@ -81,11 +89,12 @@ async function drive(path: string, init: RequestInit = {}, upload = false) {
   );
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw Error(
+    throw new DriveRequestError(
       error.error?.message ||
         (response.status === 403
           ? "Receipt access denied. Enable Google Drive API and grant file access when signing in."
           : "Google Drive did not confirm the request. Retry when your connection is available."),
+      response.status,
     );
   }
   return response;
@@ -276,3 +285,40 @@ export async function receiptBlob(
   onProgress?.({ stage: "downloading", loaded: blob.size, total: blob.size });
   return blob;
 }
+
+export async function receiptDeleteInfo(receipt: Receipt) {
+  try {
+    const file = await (
+      await drive(
+        `files/${validId(receipt.id)}?fields=id,trashed,capabilities(canTrash)`,
+      )
+    ).json();
+    return {
+      available: true,
+      trashed: file.trashed === true,
+      canTrash: file.capabilities?.canTrash === true,
+    };
+  } catch (error) {
+    if (error instanceof DriveRequestError && error.status === 404)
+      return { available: false, trashed: false, canTrash: false };
+    throw error;
+  }
+}
+async function setReceiptTrashed(receipt: Receipt, trashed: boolean) {
+  const file = await (
+    await drive(`files/${validId(receipt.id)}?fields=id,trashed`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trashed }),
+    })
+  ).json();
+  if (file.id !== receipt.id || file.trashed !== trashed)
+    throw Error(
+      "Google Drive did not confirm the receipt file update. Retry the action.",
+    );
+}
+
+export const trashReceipt = (receipt: Receipt) =>
+  setReceiptTrashed(receipt, true);
+export const restoreReceipt = (receipt: Receipt) =>
+  setReceiptTrashed(receipt, false);

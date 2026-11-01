@@ -7,6 +7,9 @@ import {
   receiptBlob,
   uploadReceipt,
   validateReceipt,
+  receiptDeleteInfo,
+  trashReceipt,
+  restoreReceipt,
 } from "../lib/receipts";
 function TransferProgress({
   name,
@@ -99,15 +102,78 @@ export default function Receipts({
   transaction,
   disabled,
   onAttach,
+  onBusyChange,
 }: {
   transaction: RecordData;
   disabled: boolean;
   onAttach: (receipts: Receipt[]) => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  async function removeReceipt(receipt: Receipt) {
+    if (
+      !confirm(
+        `Delete ${receipt.name}? Its file will move to Google Drive Trash and its transaction link will be removed.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setProgress("Deleting " + receipt.name + "…");
+    setJobs([]);
+    let movedToTrash = false;
+    try {
+      const info = await receiptDeleteInfo(receipt);
+      if (!info.available)
+        throw Error(
+          "The Drive file is unavailable. Sign in with the account that uploaded it before deleting this receipt.",
+        );
+      if (!info.trashed && !info.canTrash)
+        throw Error(
+          "Only the account that owns this Drive file can delete it. Sign in with the account that uploaded it. Nothing was removed.",
+        );
+      if (!info.trashed) {
+        await trashReceipt(receipt);
+        movedToTrash = true;
+      }
+      setProgress("Removing the deleted receipt link from Google Sheets…");
+      try {
+        await onAttach(receipts.filter((item) => item.id !== receipt.id));
+      } catch (error) {
+        if (movedToTrash) {
+          let restored = false;
+          try {
+            await restoreReceipt(receipt);
+            restored = true;
+          } catch {
+            /* Report the partial result below. */
+          }
+          throw Error(
+            restored
+              ? "The Sheet update was not confirmed. The file was restored in Drive. Sync and check the transaction before retrying."
+              : "The file is in Drive Trash, but its transaction link update was not confirmed. Sync and retry deleting this receipt to finish removing the link.",
+          );
+        }
+        throw error;
+      }
+      if (opened === receipt.id) setOpened(null);
+      setProgress(
+        "Receipt deleted from the transaction and moved to Google Drive Trash.",
+      );
+    } catch (e: any) {
+      setError(e.message);
+      setProgress("");
+    } finally {
+      setBusy(false);
+    }
+  }
   const [jobs, setJobs] = useState<
     { name: string; progress: ReceiptProgress }[]
   >([]);
@@ -239,6 +305,15 @@ export default function Receipts({
             onClick={() => setOpened(opened === receipt.id ? null : receipt.id)}
           >
             {opened === receipt.id ? "Close" : "View"} {receipt.name}
+          </button>
+          <button
+            type="button"
+            className="receipt-delete"
+            aria-label={`Delete receipt ${receipt.name}`}
+            disabled={disabled || busy}
+            onClick={() => removeReceipt(receipt)}
+          >
+            Delete
           </button>
           {opened === receipt.id && <ReceiptView receipt={receipt} />}
         </div>

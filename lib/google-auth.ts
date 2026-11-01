@@ -4,7 +4,12 @@ const ALLOWED_EMAILS = new Set([
   "ramasami.official@gmail.com",
   "tnvarsha.99@gmail.com",
 ]);
-export type GoogleSession = { email: string; name: string; expiresAt: number };
+export type GoogleSession = {
+  email: string;
+  name: string;
+  expiresAt: number;
+  offline?: boolean;
+};
 let token = "";
 let session: GoogleSession | null = null;
 let loading: Promise<void> | null = null;
@@ -18,6 +23,10 @@ export function currentGoogleSession() {
 export function googleToken() {
   if (!currentGoogleSession())
     throw Error("Sign in to Google to access your sheet.");
+  if (session?.offline)
+    throw Error(
+      "You are offline. Reconnect and sync before making Google requests.",
+    );
   return token;
 }
 export function configuredClientId() {
@@ -74,7 +83,38 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
       return null;
     }
     // Never trust an identity stored by the browser: revalidate it with Google.
-    const verified = await verifyProfile(saved.accessToken, saved.expiresAt);
+    const offlineProfile = () => {
+      if (
+        !ALLOWED_EMAILS.has(saved.verifiedEmail) ||
+        !Number.isFinite(saved.verifiedAt) ||
+        saved.verifiedAt > Date.now()
+      )
+        throw Error(
+          "Connect to Google once to verify this saved login before using the app offline.",
+        );
+      return {
+        email: saved.verifiedEmail,
+        name: String(saved.displayName || saved.verifiedEmail),
+        expiresAt: saved.expiresAt,
+        offline: true,
+      };
+    };
+    let verified: GoogleSession;
+    if (typeof navigator !== "undefined" && navigator.onLine === false)
+      verified = offlineProfile();
+    else {
+      try {
+        verified = await verifyProfile(saved.accessToken, saved.expiresAt);
+      } catch (error) {
+        if (
+          error instanceof TypeError ||
+          (error as Error).name === "AbortError" ||
+          (error as Error).name === "TimeoutError"
+        )
+          verified = offlineProfile();
+        else throw error;
+      }
+    }
     // Persist only the short-lived credential, never financial records or a trusted identity.
     // Migrates logins saved by the previous tab-only version after Google verifies them.
     localStorage.setItem(
@@ -82,6 +122,9 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
       JSON.stringify({
         accessToken: saved.accessToken,
         expiresAt: saved.expiresAt,
+        verifiedEmail: verified.email,
+        displayName: verified.name,
+        verifiedAt: verified.offline ? saved.verifiedAt : Date.now(),
       }),
     );
     sessionStorage.removeItem(SESSION_KEY);
@@ -145,7 +188,13 @@ export function signInGoogle(): Promise<GoogleSession> {
           );
           localStorage.setItem(
             SESSION_KEY,
-            JSON.stringify({ accessToken: response.access_token, expiresAt }),
+            JSON.stringify({
+              accessToken: response.access_token,
+              expiresAt,
+              verifiedEmail: verified.email,
+              displayName: verified.name,
+              verifiedAt: Date.now(),
+            }),
           );
           token = response.access_token;
           session = verified;

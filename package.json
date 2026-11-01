@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "build": "next build && node scripts/generate-sw.mjs",
     "start": "python3 scripts/preview.py",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",

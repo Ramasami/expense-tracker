@@ -179,9 +179,19 @@ export function dateSerial(iso: string) {
     (Date.parse(iso + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000,
   );
 }
-async function metadata() {
+let metadataCache: { email: string; sheets: any[]; time: number } | null = null;
+async function metadata(force = false) {
+  const email = currentGoogleSession()?.email || "";
+  if (
+    !force &&
+    metadataCache?.email === email &&
+    Date.now() - metadataCache.time < 60000
+  )
+    return metadataCache.sheets;
   const d = await api("?fields=sheets.properties");
-  return d.sheets.map((s: any) => s.properties);
+  const sheets = d.sheets.map((s: any) => s.properties);
+  metadataCache = { email, sheets, time: Date.now() };
+  return sheets;
 }
 async function values(ranges: string[], formulas = false) {
   const params = new URLSearchParams({
@@ -204,7 +214,7 @@ export async function ensureGoogleSchema() {
   return preparing;
 }
 async function prepare() {
-  const sheets = await metadata(),
+  const sheets = await metadata(true),
     ledger = sheets.find((s: any) => s.title === "Expense Ledger"),
     tags = sheets.find((s: any) => s.title === "Expense Tags");
   if (!ledger || !tags)
@@ -253,6 +263,7 @@ async function prepare() {
         });
       requests.push(cellRequest(ledger.sheetId, 1, 23, ["receipts"]));
       await batch(requests);
+      metadataCache = null;
     }
     return;
   }
@@ -412,9 +423,12 @@ async function prepare() {
     );
   }
   await batch(requests);
+  metadataCache = null;
 }
-export async function readGoogleSnapshot() {
-  const sheets = await metadata();
+export async function readGoogleSnapshot(
+  options: { collections?: (keyof Snapshot)[]; forceMetadata?: boolean } = {},
+) {
+  const sheets = await metadata(options.forceMetadata);
   const ranges = [
     bounded(
       sheets.find((s: any) => s.title === "Expense Ledger"),
@@ -426,8 +440,11 @@ export async function readGoogleSnapshot() {
       16,
     ),
   ];
-  const extras = Object.entries(CLOUD_TABS).filter(([, name]) =>
-    sheets.some((s: any) => s.title === name),
+  const extras = Object.entries(CLOUD_TABS).filter(
+    ([key, name]) =>
+      sheets.some((s: any) => s.title === name) &&
+      (!options.collections ||
+        options.collections.includes(key as keyof Snapshot)),
   );
   ranges.push(
     ...extras.map(([, name]) =>
@@ -437,7 +454,10 @@ export async function readGoogleSnapshot() {
       ),
     ),
   );
-  if (sheets.some((s: any) => s.title === "Audit Log"))
+  if (
+    (!options.collections || options.collections.includes("audit")) &&
+    sheets.some((s: any) => s.title === "Audit Log")
+  )
     ranges.push(
       bounded(
         sheets.find((s: any) => s.title === "Audit Log"),
@@ -493,7 +513,12 @@ export async function readGoogleSnapshot() {
         source: "google-sheet",
       }))
       .reverse();
-  return { data, sheets };
+  return {
+    data,
+    sheets,
+    collections:
+      options.collections || (Object.keys(empty) as (keyof Snapshot)[]),
+  };
 }
 function rawId(key: string, id: string) {
   return key === "transactions"

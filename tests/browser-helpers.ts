@@ -3,6 +3,7 @@ import { fixture } from "./sheets-fixture";
 export async function mockGoogle(page: Page) {
   const f = fixture();
   const state = {
+    ranges: [] as string[][],
     signIns: 0,
     sheetRequests: 0,
     publicRequests: 0,
@@ -13,8 +14,11 @@ export async function mockGoogle(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("wealthtrack-save-destination", "browser");
     localStorage.setItem("financial-data", "stale data must never be used");
-    indexedDB.open = () => {
-      throw new Error("Financial IndexedDB access is forbidden");
+    const originalOpen = indexedDB.open.bind(indexedDB);
+    indexedDB.open = (name, version) => {
+      if (name !== "budget-tracker-sheet-cache-v1")
+        throw new Error("The superseded financial store must not be used");
+      return originalOpen(name, version);
     };
   });
   await page.route("https://docs.google.com/**", (route) => {
@@ -39,6 +43,8 @@ export async function mockGoogle(page: Page) {
   await page.route("https://sheets.googleapis.com/**", async (route) => {
     state.sheetRequests++;
     const req = route.request();
+    if (req.url().includes("values:batchGet"))
+      state.ranges.push(new URL(req.url()).searchParams.getAll("ranges"));
     if (
       (state.failReads && req.method() === "GET") ||
       (state.failWrites && req.method() !== "GET")

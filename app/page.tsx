@@ -1,6 +1,13 @@
 "use client";
 import Analytics from "./analytics";
 import Receipts from "./receipts";
+import { usePullToRefresh } from "./pull-to-refresh";
+import {
+  readSheetCache,
+  writeSheetCache,
+  screenCollections,
+  Collection,
+} from "../lib/sheet-cache";
 import { SHEET_URL } from "../lib/public-sheet";
 import {
   configuredClientId,
@@ -12,11 +19,7 @@ import {
   disconnectGoogle,
   GoogleSession,
 } from "../lib/google-auth";
-import {
-  ensureGoogleSchema,
-  readGoogleSnapshot,
-  saveGoogle,
-} from "../lib/google-sheets";
+import { readGoogleSnapshot, saveGoogle } from "../lib/google-sheets";
 import { report, budgetSpent } from "../lib/reports";
 import { useEffect, useState, useMemo, useRef } from "react";
 import {
@@ -173,8 +176,22 @@ export default function Home() {
     [connecting, setConnecting] = useState(false),
     [authChecked, setAuthChecked] = useState(false),
     [dataReady, setDataReady] = useState(false);
+  const dataRef = useRef<Snapshot>(empty);
+  const fetchedRef = useRef<Partial<Record<Collection, number>>>({});
+  const [fetchedAt, setFetchedAt] = useState<
+    Partial<Record<Collection, number>>
+  >({});
+  const [stale, setStale] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const pageRef = useRef("Dashboard");
   const epoch = useRef(0);
   const sheetBusy = useRef(false);
+  const attachmentBusy = useRef(false);
+  const staleRef = useRef(true);
+  function markStale(value: boolean) {
+    staleRef.current = value;
+    setStale(value);
+  }
   const savingRef = useRef(false);
   const channel = useRef<BroadcastChannel | null>(null);
   function signOut(message = "") {
@@ -182,6 +199,10 @@ export default function Home() {
     disconnectGoogle();
     setGoogleSession(null);
     setData(empty);
+    dataRef.current = empty;
+    fetchedRef.current = {};
+    setFetchedAt({});
+    markStale(true);
     setDataReady(false);
     setModal(null);
     setDetail(null);
@@ -189,60 +210,136 @@ export default function Home() {
     setNotice("");
     setError(message);
     setPage("Dashboard");
+    pageRef.current = "Dashboard";
     setPeriod("All Time");
     setSelected([]);
     setSearch("");
   }
+  async function persistSnapshot(
+    snapshot: Snapshot,
+    times: Partial<Record<Collection, number>>,
+  ) {
+    const email = currentGoogleSession()?.email;
+    if (!email) return;
+    try {
+      await writeSheetCache(email, snapshot, times);
+    } catch {
+      setNotice(
+        "This device could not save an offline cache. Your Google Sheets data is unaffected.",
+      );
+    }
+  }
+  async function loadCachedData(email: string) {
+    try {
+      const cached = await readSheetCache(email);
+      if (!cached) return;
+      dataRef.current = cached.data;
+      fetchedRef.current = cached.fetchedAt;
+      setData(cached.data);
+      setFetchedAt(cached.fetchedAt);
+      setDataReady(true);
+      setSetup(true);
+      markStale(true);
+      setStatus(
+        navigator.onLine ? "Cached data · syncing" : "Offline · cached data",
+      );
+      setSheetStatus("Cached Google Sheets data");
+      const time = Math.min(
+        ...screenCollections(pageRef.current).map(
+          (key) => cached.fetchedAt[key] || 0,
+        ),
+      );
+      if (time) setSheetTime(new Date(time).toLocaleString("en-IN"));
+    } catch {
+      /* Cache is optional; the live fetch will report its own error. */
+    }
+  }
   function failData(message: string) {
-    setDetail(null);
-    setConflict(null);
     setSelected([]);
     setNotice("");
-    setData(empty);
-    setDataReady(false);
-    setStatus("Google Sheets unavailable");
+    setSetup(true);
+    markStale(true);
+    setStatus("Offline / sync unavailable");
+    setSheetStatus("Offline or unable to sync · cached snapshot");
     setError(message);
     if (!currentGoogleSession()) signOut(message);
   }
-  async function refreshSheet(initialize = false) {
-    if (sheetBusy.current || savingRef.current) return;
-    if (!currentGoogleSession()) {
+  async function refreshSheet(force = true, requestedPage = pageRef.current) {
+    if (sheetBusy.current || savingRef.current || attachmentBusy.current)
+      return;
+    let session = currentGoogleSession();
+    if (session?.offline && navigator.onLine) {
+      try {
+        session = await restoreGoogleSession();
+        setGoogleSession(session);
+      } catch (e: any) {
+        signOut(e.message);
+        return;
+      }
+    }
+    if (!session) {
       signOut("Your Google session expired. Sign in again.");
       return;
     }
-    sheetBusy.current = true;
-    const requestEpoch = ++epoch.current;
-    setStatus("Fetching Google Sheets");
-    try {
-      if (initialize) await ensureGoogleSchema();
-      const snapshot = await readGoogleSnapshot();
-      if (requestEpoch !== epoch.current || !currentGoogleSession()) return;
-      setData(snapshot.data);
-      const prefs = snapshot.data.settings.find(
-        (row) => row.name === "Household preferences",
+    const collections = screenCollections(requestedPage);
+    if (
+      !force &&
+      !session.offline &&
+      navigator.onLine &&
+      collections.every(
+        (key) => Date.now() - (fetchedRef.current[key] || 0) < 60000,
+      )
+    )
+      return;
+    if (!navigator.onLine || session.offline) {
+      failData(
+        "You are offline. Showing cached data; reconnect and sync to enable edits.",
       );
-      if (prefs && initialize) {
-        if (prefs.person) setPerson(prefs.person);
+      return;
+    }
+    sheetBusy.current = true;
+    setSyncing(true);
+    const requestEpoch = ++epoch.current;
+    setStatus("Syncing Google Sheets");
+    try {
+      const snapshot = await readGoogleSnapshot({
+        collections,
+        forceMetadata: force,
+      });
+      if (requestEpoch !== epoch.current || !currentGoogleSession()) return;
+      const merged = { ...dataRef.current };
+      const times = { ...fetchedRef.current };
+      const now = Date.now();
+      for (const key of collections) {
+        merged[key] = snapshot.data[key];
+        times[key] = now;
       }
+      dataRef.current = merged;
+      fetchedRef.current = times;
+      setData(merged);
+      setFetchedAt(times);
       setDataReady(true);
       setSetup(false);
+      markStale(false);
       setError("");
       setSheetStatus("Google Sheets connected");
       setStatus("Google connected");
       const time = new Date().toLocaleTimeString("en-IN");
       setSheetTime(time);
       setLastSync(time);
+      await persistSnapshot(merged, times);
     } catch (e: any) {
       if (requestEpoch === epoch.current) {
-        if (e.status === 401) signOut(e.message);
+        if (e.status === 401 || e.status === 403) signOut(e.message);
         else
           failData(
             e.message ||
-              "Could not load Google Sheets. Retry when your connection is available.",
+              "Could not sync Google Sheets. Showing cached data with edits disabled.",
           );
       }
     } finally {
       sheetBusy.current = false;
+      setSyncing(false);
     }
   }
   async function connectGoogle() {
@@ -252,13 +349,24 @@ export default function Home() {
       if (clientId.trim()) saveClientId(clientId);
       const session = await signInGoogle();
       setGoogleSession(session);
-      await refreshSheet(true);
+      await loadCachedData(session.email);
+      await refreshSheet();
     } catch (e: any) {
       signOut(e.message);
     } finally {
       setConnecting(false);
     }
   }
+  const pull = usePullToRefresh(
+    () => refreshSheet(),
+    !!googleSession && dataReady && !modal && !detail && !conflict && !saving,
+  );
+  const viewAvailable = screenCollections(page).every(
+    (key) => !!fetchedAt[key],
+  );
+  const viewSyncedAt = Math.min(
+    ...screenCollections(page).map((key) => fetchedAt[key] || 0),
+  );
   const [sheetStatus, setSheetStatus] = useState("Google Sheets"),
     [sheetTime, setSheetTime] = useState("");
   useEffect(() => {
@@ -270,7 +378,7 @@ export default function Home() {
         if (!cancelled) setAuthReady(true);
       })
       .catch((e) => {
-        if (!cancelled) setError(e.message);
+        if (!cancelled && navigator.onLine) setError(e.message);
       });
     const t = localStorage.getItem("wealthtrack-theme") || "light";
     setTheme(t);
@@ -281,7 +389,9 @@ export default function Home() {
         if (cancelled) return;
         if (restored) {
           setGoogleSession(restored);
-          await refreshSheet(true);
+          await loadCachedData(restored.email);
+          setAuthChecked(true);
+          await refreshSheet();
         }
       } catch (e: any) {
         if (!cancelled) signOut(e.message);
@@ -291,7 +401,7 @@ export default function Home() {
     })();
     const checkSession = () => {
       if (currentGoogleSession()) {
-        if (!document.hidden) refreshSheet();
+        // Session expiry is checked here without polling the Sheets API.
       } else if (
         localStorage.getItem("wealthtrack-google-session") === null &&
         sessionStorage.getItem("wealthtrack-google-session") === null
@@ -309,7 +419,36 @@ export default function Home() {
     };
     window.addEventListener("storage", onStoredSessionChange);
     const timer = setInterval(checkSession, 15000);
-    document.addEventListener("visibilitychange", checkSession);
+    const reconnect = async () => {
+      void loadGoogleIdentity()
+        .then(() => setAuthReady(true))
+        .catch(() => setAuthReady(false));
+      try {
+        const restored = await restoreGoogleSession();
+        if (!restored) {
+          signOut("Your Google session expired. Sign in again.");
+          return;
+        }
+        setGoogleSession(restored);
+        await refreshSheet();
+      } catch (e: any) {
+        signOut(e.message);
+      }
+    };
+    const goOffline = () => {
+      if (currentGoogleSession())
+        failData(
+          "You are offline. Showing cached data; edits are disabled until you sync.",
+        );
+    };
+    const active = () => {
+      checkSession();
+      if (!document.hidden && currentGoogleSession() && navigator.onLine)
+        refreshSheet(false);
+    };
+    window.addEventListener("online", reconnect);
+    window.addEventListener("offline", goOffline);
+    document.addEventListener("visibilitychange", active);
     if ("BroadcastChannel" in window) {
       channel.current = new BroadcastChannel("wealthtrack");
       channel.current.onmessage = () => {
@@ -321,7 +460,9 @@ export default function Home() {
       epoch.current++;
       clearInterval(timer);
       window.removeEventListener("storage", onStoredSessionChange);
-      document.removeEventListener("visibilitychange", checkSession);
+      window.removeEventListener("online", reconnect);
+      window.removeEventListener("offline", goOffline);
+      document.removeEventListener("visibilitychange", active);
       channel.current?.close();
     };
   }, []);
@@ -465,11 +606,17 @@ export default function Home() {
     );
   function navigate(p: string) {
     setPage(p);
+    pageRef.current = p;
+    if (currentGoogleSession()) void refreshSheet(false, p);
     setMobile(false);
     setOffset(0);
     setSelected([]);
   }
   function open(entity: string, record: any = {}) {
+    if (stale || syncing) {
+      setError("Sync with Google Sheets before editing cached data.");
+      return;
+    }
     setModal({
       entity,
       record: {
@@ -494,7 +641,12 @@ export default function Home() {
   ) {
     setSaving(true);
     try {
-      if (!dataReady || !currentGoogleSession())
+      if (
+        !dataReady ||
+        staleRef.current ||
+        sheetBusy.current ||
+        !currentGoogleSession()
+      )
         throw Error("Sign in and load Google Sheets before saving.");
       savingRef.current = true;
       const requestEpoch = ++epoch.current;
@@ -513,7 +665,14 @@ export default function Home() {
         setStatus("Conflict");
         return false;
       }
+      dataRef.current = d.data;
       setData(d.data);
+      const times = Object.fromEntries(
+        Object.keys(empty).map((key) => [key, Date.now()]),
+      );
+      fetchedRef.current = times;
+      setFetchedAt(times);
+      await persistSnapshot(d.data, times);
       setStatus("Saved to Google Sheets");
       channel.current?.postMessage("changed");
       setNotice("Saved to Google Sheets");
@@ -848,7 +1007,13 @@ export default function Home() {
                     </td>
                   )}
                   <td>
-                    <button className="merchant" onClick={() => setDetail(r)}>
+                    <button
+                      className="merchant"
+                      onClick={() => {
+                        setDetail(r);
+                        void refreshSheet(false, "Transaction details");
+                      }}
+                    >
                       <span
                         className="merchant-icon"
                         style={{
@@ -887,6 +1052,7 @@ export default function Home() {
                     <div className="row-actions">
                       <button
                         aria-label="Edit transaction"
+                        disabled={stale || syncing || saving}
                         onClick={() => open("transactions", r)}
                       >
                         <Pencil size={14} />
@@ -895,7 +1061,7 @@ export default function Home() {
                         aria-label={
                           deleted ? "Restore transaction" : "Delete transaction"
                         }
-                        disabled={saving}
+                        disabled={saving || setup || syncing}
                         onClick={() =>
                           action(
                             "transactions",
@@ -954,7 +1120,7 @@ export default function Home() {
           </div>
           <button
             className="primary"
-            disabled={setup}
+            disabled={setup || syncing}
             onClick={() => open(key)}
           >
             <Plus size={17} />
@@ -1071,12 +1237,15 @@ export default function Home() {
                       Save to Google Sheet
                     </button>
                   )}
-                  <button onClick={() => open(key, r)}>
+                  <button
+                    disabled={stale || syncing}
+                    onClick={() => open(key, r)}
+                  >
                     <Pencil size={14} />
                     Edit
                   </button>
                   <button
-                    disabled={saving}
+                    disabled={saving || setup || syncing}
                     onClick={() =>
                       action(
                         key,
@@ -1178,6 +1347,22 @@ export default function Home() {
     );
   return (
     <div className="app">
+      {(pull.distance > 0 || pull.refreshing) && (
+        <div
+          className="pull-indicator"
+          role="status"
+          style={{
+            transform: `translateX(-50%) translateY(${Math.max(0, pull.distance - 25)}px)`,
+          }}
+        >
+          <RefreshCw size={17} />{" "}
+          {pull.refreshing
+            ? "Syncing with Google Sheets…"
+            : pull.distance >= 65
+              ? "Release to sync"
+              : "Pull down to sync"}
+        </div>
+      )}
       <aside className={mobile ? "sidebar mobile-open" : "sidebar"}>
         <a
           className="brand"
@@ -1308,7 +1493,7 @@ export default function Home() {
             </div>
             <button
               className="primary"
-              disabled={setup || saving}
+              disabled={setup || saving || syncing}
               onClick={() => open("transactions")}
             >
               <Plus size={18} />
@@ -1386,6 +1571,24 @@ export default function Home() {
             {sheetTime ? " · " + sheetTime : ""}. Save destination: Google
             Sheets.
           </p>
+          {stale && (
+            <div className="offline-banner" role="status">
+              <strong>
+                {navigator.onLine && !googleSession.offline
+                  ? "Cached data · sync required"
+                  : "Offline — cached data"}
+              </strong>
+              <span>
+                {viewSyncedAt
+                  ? `Last sync: ${new Date(viewSyncedAt).toLocaleString("en-IN")}. `
+                  : ""}
+                Edits, uploads and deletions are disabled until you sync.
+              </span>
+              <button disabled={syncing} onClick={() => refreshSheet()}>
+                Sync now
+              </button>
+            </div>
+          )}
           {error && (
             <div className="alert" role="alert">
               {error}
@@ -1405,949 +1608,987 @@ export default function Home() {
               </button>
             </div>
           )}
-          {page === "Dashboard" && (
+          {!viewAvailable && (
+            <div className="card empty" role="status">
+              {syncing
+                ? "Fetching this screen from Google Sheets…"
+                : "This screen is not cached yet. Connect to the internet and sync to view it."}
+            </div>
+          )}
+          {viewAvailable && (
             <>
-              <div className="overview-heading">
-                <h2>
-                  {period === "All Time"
-                    ? "Your all-time savings"
-                    : "Your money at a glance"}
-                </h2>
-                <span>
-                  {range[0]} — {range[1]}
-                </span>
-              </div>
-              <div className="stats-grid">
-                {card(
-                  "Total income",
-                  stats.income,
-                  previous.income,
-                  "var(--teal)",
-                  "Income",
-                )}
-                {card(
-                  "Total expenses",
-                  stats.expense,
-                  previous.expense,
-                  "var(--red)",
-                  "Expense",
-                )}
-                {card(
-                  "Investments",
-                  stats.investment,
-                  previous.investment,
-                  "var(--purple)",
-                  "Investment",
-                )}
-                {card(
-                  "Total savings",
-                  stats.income - stats.expense,
-                  previous.income - previous.expense,
-                  "var(--text)",
-                )}
-              </div>
-              <div className="dashboard-grid">
-                <section className="card cash-chart">
-                  <div className="card-heading">
-                    <div>
-                      <h2>The bigger picture</h2>
-                      <p>Your income, spending & investing</p>
-                    </div>
-                    <button
-                      className="icon-button"
-                      aria-label="View cash flow"
-                      onClick={() => navigate("Income & Cash Flow")}
-                    >
-                      <ArrowUpRight size={20} />
-                    </button>
-                  </div>
-                  <div className="legend">
+              {page === "Dashboard" && (
+                <>
+                  <div className="overview-heading">
+                    <h2>
+                      {period === "All Time"
+                        ? "Your all-time savings"
+                        : "Your money at a glance"}
+                    </h2>
                     <span>
-                      <i style={{ background: "#008a75" }} />
-                      Income
-                    </span>
-                    <span>
-                      <i style={{ background: "#ff385c" }} />
-                      Expenses
-                    </span>
-                    <span>
-                      <i style={{ background: "#7161ef" }} />
-                      Investments
+                      {range[0]} — {range[1]}
                     </span>
                   </div>
-                  {chart()}
-                </section>
-                <section className="card category-chart">
-                  <div className="card-heading">
-                    <div>
-                      <h2>Where it all goes</h2>
-                      <p>Every category tells a story</p>
-                    </div>
-                    <button
-                      className="icon-button"
-                      aria-label="View expense analytics"
-                      onClick={() => navigate("Expense Analytics")}
-                    >
-                      <ArrowUpRight size={20} />
-                    </button>
+                  <div className="stats-grid">
+                    {card(
+                      "Total income",
+                      stats.income,
+                      previous.income,
+                      "var(--teal)",
+                      "Income",
+                    )}
+                    {card(
+                      "Total expenses",
+                      stats.expense,
+                      previous.expense,
+                      "var(--red)",
+                      "Expense",
+                    )}
+                    {card(
+                      "Investments",
+                      stats.investment,
+                      previous.investment,
+                      "var(--purple)",
+                      "Investment",
+                    )}
+                    {card(
+                      "Total savings",
+                      stats.income - stats.expense,
+                      previous.income - previous.expense,
+                      "var(--text)",
+                    )}
                   </div>
-                  <div className="donut">
-                    {categories.length ? (
-                      <>
-                        <ResponsiveContainer width="100%" height={190}>
-                          <PieChart>
-                            <Pie
-                              data={categories}
-                              dataKey="value"
-                              innerRadius={64}
-                              outerRadius={84}
-                              paddingAngle={3}
-                              onClick={(r) => {
-                                navigate("Transactions");
-                                setTagFilter(String(r.name || ""));
-                              }}
-                            >
-                              {categories.map((c, i) => (
-                                <Cell
-                                  key={c.name}
-                                  fill={colors[i % colors.length]}
-                                />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(v) => money(Number(v))} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div className="donut-center">
-                          <small>Total spent</small>
-                          <b>{money(stats.expense)}</b>
+                  <div className="dashboard-grid">
+                    <section className="card cash-chart">
+                      <div className="card-heading">
+                        <div>
+                          <h2>The bigger picture</h2>
+                          <p>Your income, spending & investing</p>
                         </div>
-                      </>
-                    ) : (
-                      <div className="donut-empty">
-                        <small>No expenses yet</small>
-                        <b>{money(0)}</b>
+                        <button
+                          className="icon-button"
+                          aria-label="View cash flow"
+                          onClick={() => navigate("Income & Cash Flow")}
+                        >
+                          <ArrowUpRight size={20} />
+                        </button>
+                      </div>
+                      <div className="legend">
+                        <span>
+                          <i style={{ background: "#008a75" }} />
+                          Income
+                        </span>
+                        <span>
+                          <i style={{ background: "#ff385c" }} />
+                          Expenses
+                        </span>
+                        <span>
+                          <i style={{ background: "#7161ef" }} />
+                          Investments
+                        </span>
+                      </div>
+                      {chart()}
+                    </section>
+                    <section className="card category-chart">
+                      <div className="card-heading">
+                        <div>
+                          <h2>Where it all goes</h2>
+                          <p>Every category tells a story</p>
+                        </div>
+                        <button
+                          className="icon-button"
+                          aria-label="View expense analytics"
+                          onClick={() => navigate("Expense Analytics")}
+                        >
+                          <ArrowUpRight size={20} />
+                        </button>
+                      </div>
+                      <div className="donut">
+                        {categories.length ? (
+                          <>
+                            <ResponsiveContainer width="100%" height={190}>
+                              <PieChart>
+                                <Pie
+                                  data={categories}
+                                  dataKey="value"
+                                  innerRadius={64}
+                                  outerRadius={84}
+                                  paddingAngle={3}
+                                  onClick={(r) => {
+                                    navigate("Transactions");
+                                    setTagFilter(String(r.name || ""));
+                                  }}
+                                >
+                                  {categories.map((c, i) => (
+                                    <Cell
+                                      key={c.name}
+                                      fill={colors[i % colors.length]}
+                                    />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(v) => money(Number(v))} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                            <div className="donut-center">
+                              <small>Total spent</small>
+                              <b>{money(stats.expense)}</b>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="donut-empty">
+                            <small>No expenses yet</small>
+                            <b>{money(0)}</b>
+                          </div>
+                        )}
+                      </div>
+                      <div className="category-legend">
+                        {categories.slice(0, 4).map((c, i) => (
+                          <button
+                            key={c.name}
+                            onClick={() => {
+                              navigate("Transactions");
+                              setTagFilter(c.name);
+                            }}
+                          >
+                            <span>
+                              <i style={{ background: colors[i] }} />
+                              {c.name}
+                            </span>
+                            <b>
+                              {((100 * c.value) / (stats.expense || 1)).toFixed(
+                                0,
+                              )}
+                              %
+                            </b>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                  <div className="secondary-grid">
+                    <section className="together-card">
+                      <div>
+                        <span className="eyebrow">
+                          BUILDING SOMETHING GOOD, TOGETHER
+                        </span>
+                        <h2>Your future is taking shape.</h2>
+                        <p>
+                          You’ve set aside <b>{money(stats.investment)}</b> in
+                          investments this period.
+                          <br />
+                          Every contribution is a step toward your next chapter.
+                        </p>
+                        <button onClick={() => navigate("Financial Goals")}>
+                          Explore your goals <ArrowRight size={16} />
+                        </button>
+                      </div>
+                      <div className="plant">
+                        <Leaf size={77} strokeWidth={1} />
+                        <span>↗</span>
+                      </div>
+                    </section>
+                    <section className="card savings-card">
+                      <div className="card-heading">
+                        <h2>A little breathing room</h2>
+                        <Leaf size={19} />
+                      </div>
+                      <strong>
+                        {stats.savings.toFixed(1)}
+                        <small>%</small>
+                      </strong>
+                      <p>of your income saved before investing</p>
+                      <div className="savings-track">
+                        <span
+                          style={{
+                            width: `${Math.min(100, Math.max(0, stats.savings))}%`,
+                          }}
+                        />
+                      </div>
+                      <small>
+                        {money(stats.income - stats.expense)} saved this period
+                      </small>
+                    </section>
+                  </div>
+                  <section className="card recent">
+                    <div className="card-heading">
+                      <div>
+                        <h2>Life, lately</h2>
+                        <p>Your latest transactions</p>
+                      </div>
+                      <button
+                        className="text-button"
+                        onClick={() => navigate("Transactions")}
+                      >
+                        View all <ArrowRight size={15} />
+                      </button>
+                    </div>
+                    {transactionTable(5)}
+                  </section>
+                  <div className="available-cash card">
+                    <div>
+                      <span className="stat-label">
+                        Available cash through {range[1]}
+                      </span>
+                      <strong>{money(available)}</strong>
+                      <small>
+                        Known opening balances + income − expenses − investment
+                        contributions. Unassigned records are included in the
+                        combined view.
+                      </small>
+                    </div>
+                    <Wallet size={25} />
+                  </div>
+                  <div className="balance-grid">
+                    {["Ram", "Varsha", "Combined"].map((p) => (
+                      <div className="card" key={p}>
+                        <span className="stat-label">
+                          {p === "Combined" ? "Household" : p} cash movement
+                        </span>
+                        <strong>
+                          {money(
+                            totals(filterRows(data.transactions, p, ...range))
+                              .net,
+                          )}
+                        </strong>
+                        <small>
+                          Income − expenses − contributions in this period
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {page === "Transactions" && (
+                <section className="card">
+                  <div className="card-heading">
+                    <h2>
+                      {deleted ? "Recently deleted" : "All transactions"}{" "}
+                      <small>({transactions.length})</small>
+                    </h2>
+                    <div className="row-actions">
+                      <button
+                        onClick={() => {
+                          setDeleted(!deleted);
+                          setOffset(0);
+                        }}
+                      >
+                        {deleted ? "Active transactions" : "Recently deleted"}
+                      </button>
+                      <button onClick={() => exportData("csv")}>
+                        <Download size={15} />
+                        Export
+                      </button>
+                    </div>
+                  </div>
+                  <div className="transaction-filters">
+                    <input
+                      aria-label="Search transactions"
+                      type="search"
+                      placeholder="Search merchant, notes, tag or account"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <select
+                      aria-label="Tag filter"
+                      value={tagFilter}
+                      onChange={(e) => {
+                        setTagFilter(e.target.value);
+                        setOffset(0);
+                      }}
+                    >
+                      <option value="">All categories</option>
+                      {data.tags.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Type filter"
+                      value={typeFilter}
+                      onChange={(e) => {
+                        setTypeFilter(e.target.value);
+                        setOffset(0);
+                      }}
+                    >
+                      <option value="">All types</option>
+                      {["Income", "Expense", "Investment", "Transfer"].map(
+                        (t) => (
+                          <option key={t}>{t}</option>
+                        ),
+                      )}
+                    </select>
+                    <select
+                      aria-label="Account filter"
+                      value={accountFilter}
+                      onChange={(e) => {
+                        setAccountFilter(e.target.value);
+                        setOffset(0);
+                      }}
+                    >
+                      <option value="">All accounts</option>
+                      {accountOptions.map((value) => (
+                        <option key={value} value={value}>
+                          {accountName(value)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Payment method filter"
+                      value={paymentFilter}
+                      onChange={(e) => setPaymentFilter(e.target.value)}
+                    >
+                      <option value="">All payment methods</option>
+                      {Array.from(
+                        new Set(
+                          data.transactions
+                            .map((row) => row.payment)
+                            .filter(Boolean),
+                        ),
+                      )
+                        .sort()
+                        .map((value) => (
+                          <option key={value}>{value}</option>
+                        ))}
+                    </select>
+                    <select
+                      aria-label="Receipt filter"
+                      value={receiptFilter}
+                      onChange={(e) => setReceiptFilter(e.target.value)}
+                    >
+                      <option value="">All receipts</option>
+                      <option value="with">With receipts</option>
+                      <option value="without">Without receipts</option>
+                    </select>
+                    <input
+                      aria-label="Minimum amount"
+                      type="number"
+                      placeholder="Min ₹"
+                      value={min}
+                      onChange={(e) => setMin(e.target.value)}
+                    />
+                    <input
+                      aria-label="Maximum amount"
+                      type="number"
+                      placeholder="Max ₹"
+                      value={max}
+                      onChange={(e) => setMax(e.target.value)}
+                    />
+                    <select
+                      aria-label="Sort transactions"
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value)}
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="amount">Highest amount</option>
+                      <option value="amount-low">Lowest amount</option>
+                      <option value="merchant">Merchant A–Z</option>
+                      <option value="merchant-desc">Merchant Z–A</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        setTagFilter("");
+                        setAccountFilter("");
+                        setTypeFilter("");
+                        setPaymentFilter("");
+                        setReceiptFilter("");
+                        setSearch("");
+                        setPerson("Combined");
+                        setPeriod("All Time");
+                        setSort("newest");
+                        setMin("");
+                        setMax("");
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  {selected.length > 0 && (
+                    <div className="bulk">
+                      {selected.length} selected
+                      <button
+                        disabled={saving || setup || syncing}
+                        onClick={async () => {
+                          if (!confirm("Apply to selected records?")) return;
+                          for (const id of selected) {
+                            const r = data.transactions.find(
+                              (r) => r.id === id,
+                            )!;
+                            if (
+                              !(await mutate(
+                                "transactions",
+                                deleted ? "restore" : "delete",
+                                r,
+                              ))
+                            )
+                              break;
+                          }
+                          setSelected([]);
+                        }}
+                      >
+                        {deleted ? "Restore" : "Delete"} selected
+                      </button>
+                      <button
+                        disabled={saving || setup || syncing}
+                        onClick={async () => {
+                          const name = prompt("Exact tag name to apply");
+                          const tag = data.tags.find((t) => t.name === name);
+                          if (!tag) return;
+                          for (const id of selected) {
+                            if (
+                              !(await mutate("transactions", "edit", {
+                                ...data.transactions.find((r) => r.id === id),
+                                tagId: tag.id,
+                              }))
+                            )
+                              break;
+                          }
+                          setSelected([]);
+                        }}
+                      >
+                        Change tag
+                      </button>
+                    </div>
+                  )}
+                  {transactionTable()}
+                  <div className="pagination">
+                    <span>{transactions.length} records</span>
+                    <button
+                      disabled={offset === 0}
+                      onClick={() => setOffset(Math.max(0, offset - 20))}
+                    >
+                      Previous
+                    </button>
+                    <span>{Math.floor(offset / 20) + 1}</span>
+                    <button
+                      disabled={offset + 20 >= transactions.length}
+                      onClick={() => setOffset(offset + 20)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </section>
+              )}
+              {entities[page] && entityPage()}
+              {[
+                "Expense Analytics",
+                "Investments",
+                "Income & Cash Flow",
+              ].includes(page) && (
+                <>
+                  <div className="stats-grid">
+                    {card(
+                      "Total income",
+                      stats.income,
+                      previous.income,
+                      "var(--teal)",
+                      "Income",
+                    )}
+                    {card(
+                      "Total expenses",
+                      stats.expense,
+                      previous.expense,
+                      "var(--red)",
+                      "Expense",
+                    )}
+                    {card(
+                      "Contributions",
+                      stats.investment,
+                      previous.investment,
+                      "var(--purple)",
+                      "Investment",
+                    )}
+                    {card(
+                      "Savings rate",
+                      stats.savings,
+                      previous.savings,
+                      "var(--blue)",
+                    )}
+                  </div>
+                  <div className="dashboard-grid">
+                    <section className="card">
+                      <div className="card-heading">
+                        <h2>
+                          {page === "Investments"
+                            ? "Contribution trend"
+                            : page === "Expense Analytics"
+                              ? "Monthly spending"
+                              : "Net cash movement"}
+                        </h2>
+                      </div>
+                      {chart(
+                        page === "Investments"
+                          ? "investment"
+                          : page === "Income & Cash Flow"
+                            ? "net"
+                            : "bar",
+                      )}
+                    </section>
+                    <section className="card">
+                      <div className="card-heading">
+                        <h2>
+                          {page === "Investments"
+                            ? "Investment allocation"
+                            : "Category breakdown"}
+                        </h2>
+                      </div>
+                      <div className="breakdown">
+                        {(page === "Investments"
+                          ? Object.entries(
+                              active
+                                .filter((r) => r.type === "Investment")
+                                .reduce(
+                                  (a: any, r) => ({
+                                    ...a,
+                                    [r.tag]: (a[r.tag] || 0) + Number(r.amount),
+                                  }),
+                                  {},
+                                ),
+                            ).map(([name, value]) => ({
+                              name,
+                              value: Number(value),
+                            }))
+                          : categories
+                        ).map((c, i) => (
+                          <button
+                            key={c.name}
+                            onClick={() => {
+                              navigate("Transactions");
+                              setTagFilter(c.name);
+                            }}
+                          >
+                            <span>
+                              <i
+                                style={{
+                                  background: colors[i % colors.length],
+                                }}
+                              />
+                              {c.name}
+                            </span>
+                            <b>{money(c.value)}</b>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                  <div className="secondary-grid">
+                    <section className="card">
+                      <div className="card-heading">
+                        <h2>Savings trend</h2>
+                      </div>
+                      {chart("savings")}
+                    </section>
+                    <section className="card insight">
+                      <span className="eyebrow">FROM YOUR REAL RECORDS</span>
+                      <h2>A few things to keep in mind</h2>
+                      <p>
+                        {categories.length
+                          ? `${categories[0].name} is your largest expense category at ${money(categories[0].value)} (${((categories[0].value / (stats.expense || 1)) * 100).toFixed(1)}% of spending).`
+                          : "No spending in this period."}
+                      </p>
+                      <p>
+                        Average daily spending:{" "}
+                        {money(stats.expense / duration)} across{" "}
+                        {duration.toFixed(0)} days.
+                      </p>
+                      <p>
+                        Investment-to-income ratio:{" "}
+                        {stats.income
+                          ? ((stats.investment / stats.income) * 100).toFixed(1)
+                          : "0"}
+                        %.
+                      </p>
+                      <p>
+                        Contributions track money invested, not portfolio market
+                        value.
+                      </p>
+                    </section>
+                  </div>
+                </>
+              )}
+              {page === "Expense Analytics" && (
+                <Analytics
+                  rows={active}
+                  tags={data.tags}
+                  history={data.transactions.filter(
+                    (r) => person === "Combined" || r.person === person,
+                  )}
+                  range={range}
+                  onDrill={(tag, date) => {
+                    navigate("Transactions");
+                    setTagFilter(tag);
+                    if (date) {
+                      setPeriod("Custom Range");
+                      setCustom([date, date]);
+                    }
+                  }}
+                />
+              )}
+              {page === "Recurring Transactions" && (
+                <div className="recurring-run">
+                  <button
+                    className="primary"
+                    disabled={saving || setup || syncing}
+                    onClick={() => mutate("recurring", "runDue", {})}
+                  >
+                    Run due schedules
+                  </button>
+                  <p>
+                    Saves due transactions to Google Sheets. Nothing runs when
+                    the website is closed.
+                  </p>
+                </div>
+              )}
+              {page === "Audit History" && (
+                <section className="card">
+                  <div className="card-heading">
+                    <div>
+                      <h2>The full story</h2>
+                      <p>
+                        Append-only changes · times in IST · names are
+                        unverified
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => exportData("csv", data.audit, "Audit")}
+                    >
+                      <Download size={15} />
+                      Export
+                    </button>
+                  </div>
+                  <div className="timeline">
+                    {data.audit
+                      .filter(
+                        (r) =>
+                          (!search ||
+                            JSON.stringify(r)
+                              .toLowerCase()
+                              .includes(search.toLowerCase())) &&
+                          String(r.timestamp).slice(0, 10) >= range[0] &&
+                          String(r.timestamp).slice(0, 10) <= range[1] &&
+                          (person === "Combined" ||
+                            String(r.actor).startsWith(person)),
+                      )
+                      .map((r) => (
+                        <details key={r.id}>
+                          <summary>
+                            <span className="timeline-dot">
+                              <History size={16} />
+                            </span>
+                            <span>
+                              <b>
+                                {r.description} · {r.action}
+                              </b>
+                              <small>
+                                {r.actor} · {r.timestamp} IST
+                              </small>
+                            </span>
+                            <ChevronRight size={16} />
+                          </summary>
+                          <div className="audit-diff">
+                            <p>Changed: {r.fields}</p>
+                            <div>
+                              <section>
+                                <b>Before</b>
+                                <pre>
+                                  {JSON.stringify(safeParse(r.old), null, 2)}
+                                </pre>
+                              </section>
+                              <section>
+                                <b>After</b>
+                                <pre>
+                                  {JSON.stringify(
+                                    safeParse(r.updated),
+                                    null,
+                                    2,
+                                  )}
+                                </pre>
+                              </section>
+                            </div>
+                          </div>
+                        </details>
+                      ))}
+                    {!data.audit.length && (
+                      <div className="empty">
+                        Changes saved to Google Sheets will appear here.
                       </div>
                     )}
                   </div>
-                  <div className="category-legend">
-                    {categories.slice(0, 4).map((c, i) => (
-                      <button
-                        key={c.name}
-                        onClick={() => {
-                          navigate("Transactions");
-                          setTagFilter(c.name);
-                        }}
-                      >
-                        <span>
-                          <i style={{ background: colors[i] }} />
-                          {c.name}
-                        </span>
-                        <b>
-                          {((100 * c.value) / (stats.expense || 1)).toFixed(0)}%
-                        </b>
-                      </button>
-                    ))}
-                  </div>
                 </section>
-              </div>
-              <div className="secondary-grid">
-                <section className="together-card">
-                  <div>
-                    <span className="eyebrow">
-                      BUILDING SOMETHING GOOD, TOGETHER
-                    </span>
-                    <h2>Your future is taking shape.</h2>
-                    <p>
-                      You’ve set aside <b>{money(stats.investment)}</b> in
-                      investments this period.
-                      <br />
-                      Every contribution is a step toward your next chapter.
-                    </p>
-                    <button onClick={() => navigate("Financial Goals")}>
-                      Explore your goals <ArrowRight size={16} />
+              )}
+              {page === "Reports" && (
+                <div className="entity-grid">
+                  {[
+                    "Weekly Expense Report",
+                    "Monthly Financial Summary",
+                    "YTD Financial Summary",
+                    "Annual Financial Report",
+                    "Category Expense Report",
+                    "Tag Report",
+                    "Merchant Report",
+                    "Investment Contribution Report",
+                    "Ram vs Varsha Report",
+                    "Account Statement",
+                    "Audit History Report",
+                  ].map((title) => (
+                    <section className="card report-card" key={title}>
+                      <FileText size={28} />
+                      <h3>{title}</h3>
+                      <p>
+                        Uses the selected person, dates, and matching records.
+                      </p>
+                      <div className="row-actions">
+                        {["csv", "xlsx", "pdf"].map((f) => (
+                          <button
+                            key={f}
+                            onClick={() =>
+                              exportData(
+                                f,
+                                report(
+                                  title,
+                                  active,
+                                  data.audit.filter(
+                                    (a) =>
+                                      String(a.timestamp).slice(0, 10) >=
+                                        range[0] &&
+                                      String(a.timestamp).slice(0, 10) <=
+                                        range[1] &&
+                                      (person === "Combined" ||
+                                        String(a.actor).startsWith(person)),
+                                  ),
+                                ),
+                                title,
+                              )
+                            }
+                          >
+                            {f.toUpperCase()} <Download size={13} />
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+              {page === "Settings" && (
+                <section className="card settings">
+                  <h2>Your space, your way</h2>
+                  <p>
+                    Your approved Google account is required to view and update
+                    the shared workbook. Financial records are fetched directly
+                    from Google Sheets.
+                  </p>
+                  <label>
+                    Appearance
+                    <select
+                      value={theme}
+                      onChange={(e) => {
+                        setTheme(e.target.value);
+                        document.documentElement.dataset.theme = e.target.value;
+                        localStorage.setItem(
+                          "wealthtrack-theme",
+                          e.target.value,
+                        );
+                      }}
+                    >
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                  <label>
+                    Default person
+                    <select
+                      value={person}
+                      onChange={(e) => setPerson(e.target.value)}
+                    >
+                      {["Ram", "Varsha", "Combined"].map((p) => (
+                        <option key={p}>{p}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Reporting period
+                    <select
+                      value={period}
+                      onChange={(e) => setPeriod(e.target.value)}
+                    >
+                      {periods.map((p) => (
+                        <option key={p}>{p}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p>
+                    Currency: INR · Indian number formatting
+                    <br />
+                    Storage: Google Sheets with a read-only offline cache
+                    <br />
+                    Audit actor: {googleSession.email}
+                  </p>
+                  <button
+                    className="primary"
+                    disabled={setup || syncing}
+                    onClick={() =>
+                      mutate("settings", data.settings[0] ? "edit" : "create", {
+                        ...data.settings[0],
+                        name: "Household preferences",
+                        theme,
+                        person,
+                        period,
+                      })
+                    }
+                  >
+                    Save household preferences
+                  </button>
+                  <hr />
+                  <h3>Google Sheets saves</h3>
+                  <p>
+                    {googleSession
+                      ? "Signed in as " + googleSession.email
+                      : "Sign in with an account that can edit this workbook to save changes to Google Sheets."}
+                  </p>
+                  <label>
+                    Google Web OAuth client ID
+                    <input
+                      aria-label="Google Web OAuth client ID"
+                      value={clientId}
+                      placeholder="…apps.googleusercontent.com"
+                      onChange={(e) => setClientId(e.target.value)}
+                    />
+                  </label>
+                  <div className="row-actions">
+                    <button
+                      onClick={() => {
+                        try {
+                          saveClientId(clientId);
+                          setNotice("Google client ID saved for this browser.");
+                        } catch (e: any) {
+                          setError(e.message);
+                        }
+                      }}
+                    >
+                      Save client ID
+                    </button>
+                    <button
+                      className="primary"
+                      disabled={connecting || !authReady}
+                      onClick={connectGoogle}
+                    >
+                      {connecting ? "Connecting…" : "Sign in with Google"}
+                    </button>
+                    {googleSession && (
+                      <button onClick={() => signOut()}>Sign out</button>
+                    )}
+                  </div>
+                  <details className="google-setup">
+                    <summary>Set up Google sign-in once</summary>
+                    <ol>
+                      <li>
+                        Create or select a project in{" "}
+                        <a
+                          href="https://console.cloud.google.com/apis/credentials"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Google Cloud Console
+                        </a>
+                        .
+                      </li>
+                      <li>
+                        Enable the Google Sheets API and configure Google Auth
+                        Platform. For an app in Testing, add Ram and Varsha as
+                        test users.
+                      </li>
+                      <li>
+                        Create an OAuth client of type Web application. Add{" "}
+                        <code>http://127.0.0.1:3000</code> and{" "}
+                        <code>http://localhost:3000</code> as authorized
+                        JavaScript origins. Add your GitHub Pages HTTPS origin
+                        when you publish.
+                      </li>
+                      <li>
+                        Paste the client ID above. Do not paste a client secret.
+                      </li>
+                    </ol>
+                  </details>
+                  <p>
+                    First connection creates recovery copies of the ledger, tags
+                    and summaries within this workbook, adds stable IDs, and
+                    prepares supporting tabs. Your short-lived login is kept on
+                    this device so reopening the app does not require sign-in
+                    while the Google token is valid. Version checks reduce
+                    conflicts, but browser-only writes cannot guarantee a lock
+                    across devices or manual sheet edits.
+                  </p>
+                  <hr />
+                  <h3>Google Sheet</h3>
+                  <p>
+                    {sheetStatus}
+                    {sheetTime ? " · last read " + sheetTime : ""}. Refreshes
+                    every on startup and when needed for this screen. Pull down
+                    or press Sync now to force a refresh. Cached data is
+                    read-only when offline.
+                  </p>
+                  <div className="row-actions">
+                    <button onClick={() => refreshSheet()}>
+                      <RefreshCw size={15} />
+                      Refresh Google Sheet
+                    </button>
+                    <a href={SHEET_URL} target="_blank" rel="noreferrer">
+                      Open Google Sheet ↗
+                    </a>
+                  </div>
+                  <p>
+                    All saves update the shared workbook after Google confirms
+                    the request.
+                  </p>
+                  <hr />
+                  <h3>Your data & backups</h3>
+                  <p>
+                    Download a JSON export fetched directly from Google Sheets.
+                    Exports are never used as a fallback or restored into
+                    browser storage.
+                  </p>
+                  <div className="row-actions">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const current = (await readGoogleSnapshot()).data;
+                          const url = URL.createObjectURL(
+                            new Blob(
+                              [
+                                JSON.stringify(
+                                  {
+                                    schemaVersion: 1,
+                                    exportedAt: new Date().toISOString(),
+                                    data: current,
+                                  },
+                                  null,
+                                  2,
+                                ),
+                              ],
+                              {
+                                type: "application/json",
+                              },
+                            ),
+                          );
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download =
+                            "Budget Tracker-backup-" + today() + ".json";
+                          a.click();
+                          setTimeout(() => URL.revokeObjectURL(url), 1000);
+                        } catch (e: any) {
+                          setError(e.message);
+                        }
+                      }}
+                    >
+                      <Download size={15} />
+                      Download JSON backup
                     </button>
                   </div>
-                  <div className="plant">
-                    <Leaf size={77} strokeWidth={1} />
-                    <span>↗</span>
-                  </div>
                 </section>
-                <section className="card savings-card">
-                  <div className="card-heading">
-                    <h2>A little breathing room</h2>
-                    <Leaf size={19} />
-                  </div>
-                  <strong>
-                    {stats.savings.toFixed(1)}
-                    <small>%</small>
-                  </strong>
-                  <p>of your income saved before investing</p>
-                  <div className="savings-track">
-                    <span
-                      style={{
-                        width: `${Math.min(100, Math.max(0, stats.savings))}%`,
-                      }}
-                    />
-                  </div>
-                  <small>
-                    {money(stats.income - stats.expense)} saved this period
-                  </small>
-                </section>
-              </div>
-              <section className="card recent">
-                <div className="card-heading">
-                  <div>
-                    <h2>Life, lately</h2>
-                    <p>Your latest transactions</p>
-                  </div>
-                  <button
-                    className="text-button"
-                    onClick={() => navigate("Transactions")}
-                  >
-                    View all <ArrowRight size={15} />
-                  </button>
-                </div>
-                {transactionTable(5)}
-              </section>
-              <div className="available-cash card">
-                <div>
-                  <span className="stat-label">
-                    Available cash through {range[1]}
-                  </span>
-                  <strong>{money(available)}</strong>
-                  <small>
-                    Known opening balances + income − expenses − investment
-                    contributions. Unassigned records are included in the
-                    combined view.
-                  </small>
-                </div>
-                <Wallet size={25} />
-              </div>
-              <div className="balance-grid">
-                {["Ram", "Varsha", "Combined"].map((p) => (
-                  <div className="card" key={p}>
-                    <span className="stat-label">
-                      {p === "Combined" ? "Household" : p} cash movement
-                    </span>
-                    <strong>
-                      {money(
-                        totals(filterRows(data.transactions, p, ...range)).net,
-                      )}
-                    </strong>
-                    <small>
-                      Income − expenses − contributions in this period
-                    </small>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          {page === "Transactions" && (
-            <section className="card">
-              <div className="card-heading">
-                <h2>
-                  {deleted ? "Recently deleted" : "All transactions"}{" "}
-                  <small>({transactions.length})</small>
-                </h2>
-                <div className="row-actions">
-                  <button
-                    onClick={() => {
-                      setDeleted(!deleted);
-                      setOffset(0);
-                    }}
-                  >
-                    {deleted ? "Active transactions" : "Recently deleted"}
-                  </button>
-                  <button onClick={() => exportData("csv")}>
-                    <Download size={15} />
-                    Export
-                  </button>
-                </div>
-              </div>
-              <div className="transaction-filters">
-                <input
-                  aria-label="Search transactions"
-                  type="search"
-                  placeholder="Search merchant, notes, tag or account"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <select
-                  aria-label="Tag filter"
-                  value={tagFilter}
-                  onChange={(e) => {
-                    setTagFilter(e.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">All categories</option>
-                  {data.tags.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Type filter"
-                  value={typeFilter}
-                  onChange={(e) => {
-                    setTypeFilter(e.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">All types</option>
-                  {["Income", "Expense", "Investment", "Transfer"].map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Account filter"
-                  value={accountFilter}
-                  onChange={(e) => {
-                    setAccountFilter(e.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">All accounts</option>
-                  {accountOptions.map((value) => (
-                    <option key={value} value={value}>
-                      {accountName(value)}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Payment method filter"
-                  value={paymentFilter}
-                  onChange={(e) => setPaymentFilter(e.target.value)}
-                >
-                  <option value="">All payment methods</option>
-                  {Array.from(
-                    new Set(
-                      data.transactions
-                        .map((row) => row.payment)
-                        .filter(Boolean),
-                    ),
-                  )
-                    .sort()
-                    .map((value) => (
-                      <option key={value}>{value}</option>
-                    ))}
-                </select>
-                <select
-                  aria-label="Receipt filter"
-                  value={receiptFilter}
-                  onChange={(e) => setReceiptFilter(e.target.value)}
-                >
-                  <option value="">All receipts</option>
-                  <option value="with">With receipts</option>
-                  <option value="without">Without receipts</option>
-                </select>
-                <input
-                  aria-label="Minimum amount"
-                  type="number"
-                  placeholder="Min ₹"
-                  value={min}
-                  onChange={(e) => setMin(e.target.value)}
-                />
-                <input
-                  aria-label="Maximum amount"
-                  type="number"
-                  placeholder="Max ₹"
-                  value={max}
-                  onChange={(e) => setMax(e.target.value)}
-                />
-                <select
-                  aria-label="Sort transactions"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value)}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="amount">Highest amount</option>
-                  <option value="amount-low">Lowest amount</option>
-                  <option value="merchant">Merchant A–Z</option>
-                  <option value="merchant-desc">Merchant Z–A</option>
-                </select>
-                <button
-                  onClick={() => {
-                    setTagFilter("");
-                    setAccountFilter("");
-                    setTypeFilter("");
-                    setPaymentFilter("");
-                    setReceiptFilter("");
-                    setSearch("");
-                    setPerson("Combined");
-                    setPeriod("All Time");
-                    setSort("newest");
-                    setMin("");
-                    setMax("");
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-              {selected.length > 0 && (
-                <div className="bulk">
-                  {selected.length} selected
-                  <button
-                    disabled={saving}
-                    onClick={async () => {
-                      if (!confirm("Apply to selected records?")) return;
-                      for (const id of selected) {
-                        const r = data.transactions.find((r) => r.id === id)!;
-                        if (
-                          !(await mutate(
-                            "transactions",
-                            deleted ? "restore" : "delete",
-                            r,
-                          ))
-                        )
-                          break;
-                      }
-                      setSelected([]);
-                    }}
-                  >
-                    {deleted ? "Restore" : "Delete"} selected
-                  </button>
-                  <button
-                    disabled={saving}
-                    onClick={async () => {
-                      const name = prompt("Exact tag name to apply");
-                      const tag = data.tags.find((t) => t.name === name);
-                      if (!tag) return;
-                      for (const id of selected) {
-                        if (
-                          !(await mutate("transactions", "edit", {
-                            ...data.transactions.find((r) => r.id === id),
-                            tagId: tag.id,
-                          }))
-                        )
-                          break;
-                      }
-                      setSelected([]);
-                    }}
-                  >
-                    Change tag
-                  </button>
-                </div>
               )}
-              {transactionTable()}
-              <div className="pagination">
-                <span>{transactions.length} records</span>
-                <button
-                  disabled={offset === 0}
-                  onClick={() => setOffset(Math.max(0, offset - 20))}
-                >
-                  Previous
-                </button>
-                <span>{Math.floor(offset / 20) + 1}</span>
-                <button
-                  disabled={offset + 20 >= transactions.length}
-                  onClick={() => setOffset(offset + 20)}
-                >
-                  Next
-                </button>
-              </div>
-            </section>
-          )}
-          {entities[page] && entityPage()}
-          {["Expense Analytics", "Investments", "Income & Cash Flow"].includes(
-            page,
-          ) && (
-            <>
-              <div className="stats-grid">
-                {card(
-                  "Total income",
-                  stats.income,
-                  previous.income,
-                  "var(--teal)",
-                  "Income",
-                )}
-                {card(
-                  "Total expenses",
-                  stats.expense,
-                  previous.expense,
-                  "var(--red)",
-                  "Expense",
-                )}
-                {card(
-                  "Contributions",
-                  stats.investment,
-                  previous.investment,
-                  "var(--purple)",
-                  "Investment",
-                )}
-                {card(
-                  "Savings rate",
-                  stats.savings,
-                  previous.savings,
-                  "var(--blue)",
-                )}
-              </div>
-              <div className="dashboard-grid">
-                <section className="card">
-                  <div className="card-heading">
-                    <h2>
-                      {page === "Investments"
-                        ? "Contribution trend"
-                        : page === "Expense Analytics"
-                          ? "Monthly spending"
-                          : "Net cash movement"}
-                    </h2>
-                  </div>
-                  {chart(
-                    page === "Investments"
-                      ? "investment"
-                      : page === "Income & Cash Flow"
-                        ? "net"
-                        : "bar",
-                  )}
-                </section>
-                <section className="card">
-                  <div className="card-heading">
-                    <h2>
-                      {page === "Investments"
-                        ? "Investment allocation"
-                        : "Category breakdown"}
-                    </h2>
-                  </div>
-                  <div className="breakdown">
-                    {(page === "Investments"
-                      ? Object.entries(
-                          active
-                            .filter((r) => r.type === "Investment")
-                            .reduce(
-                              (a: any, r) => ({
-                                ...a,
-                                [r.tag]: (a[r.tag] || 0) + Number(r.amount),
-                              }),
-                              {},
-                            ),
-                        ).map(([name, value]) => ({
-                          name,
-                          value: Number(value),
-                        }))
-                      : categories
-                    ).map((c, i) => (
-                      <button
-                        key={c.name}
-                        onClick={() => {
-                          navigate("Transactions");
-                          setTagFilter(c.name);
-                        }}
-                      >
-                        <span>
-                          <i
-                            style={{ background: colors[i % colors.length] }}
-                          />
-                          {c.name}
-                        </span>
-                        <b>{money(c.value)}</b>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              </div>
-              <div className="secondary-grid">
-                <section className="card">
-                  <div className="card-heading">
-                    <h2>Savings trend</h2>
-                  </div>
-                  {chart("savings")}
-                </section>
-                <section className="card insight">
-                  <span className="eyebrow">FROM YOUR REAL RECORDS</span>
-                  <h2>A few things to keep in mind</h2>
-                  <p>
-                    {categories.length
-                      ? `${categories[0].name} is your largest expense category at ${money(categories[0].value)} (${((categories[0].value / (stats.expense || 1)) * 100).toFixed(1)}% of spending).`
-                      : "No spending in this period."}
-                  </p>
-                  <p>
-                    Average daily spending: {money(stats.expense / duration)}{" "}
-                    across {duration.toFixed(0)} days.
-                  </p>
-                  <p>
-                    Investment-to-income ratio:{" "}
-                    {stats.income
-                      ? ((stats.investment / stats.income) * 100).toFixed(1)
-                      : "0"}
-                    %.
-                  </p>
-                  <p>
-                    Contributions track money invested, not portfolio market
-                    value.
-                  </p>
-                </section>
-              </div>
             </>
-          )}
-          {page === "Expense Analytics" && (
-            <Analytics
-              rows={active}
-              tags={data.tags}
-              history={data.transactions.filter(
-                (r) => person === "Combined" || r.person === person,
-              )}
-              range={range}
-              onDrill={(tag, date) => {
-                navigate("Transactions");
-                setTagFilter(tag);
-                if (date) {
-                  setPeriod("Custom Range");
-                  setCustom([date, date]);
-                }
-              }}
-            />
-          )}
-          {page === "Recurring Transactions" && (
-            <div className="recurring-run">
-              <button
-                className="primary"
-                disabled={saving || setup}
-                onClick={() => mutate("recurring", "runDue", {})}
-              >
-                Run due schedules
-              </button>
-              <p>
-                Saves due transactions to Google Sheets. Nothing runs when the
-                website is closed.
-              </p>
-            </div>
-          )}
-          {page === "Audit History" && (
-            <section className="card">
-              <div className="card-heading">
-                <div>
-                  <h2>The full story</h2>
-                  <p>
-                    Append-only changes · times in IST · names are unverified
-                  </p>
-                </div>
-                <button onClick={() => exportData("csv", data.audit, "Audit")}>
-                  <Download size={15} />
-                  Export
-                </button>
-              </div>
-              <div className="timeline">
-                {data.audit
-                  .filter(
-                    (r) =>
-                      (!search ||
-                        JSON.stringify(r)
-                          .toLowerCase()
-                          .includes(search.toLowerCase())) &&
-                      String(r.timestamp).slice(0, 10) >= range[0] &&
-                      String(r.timestamp).slice(0, 10) <= range[1] &&
-                      (person === "Combined" ||
-                        String(r.actor).startsWith(person)),
-                  )
-                  .map((r) => (
-                    <details key={r.id}>
-                      <summary>
-                        <span className="timeline-dot">
-                          <History size={16} />
-                        </span>
-                        <span>
-                          <b>
-                            {r.description} · {r.action}
-                          </b>
-                          <small>
-                            {r.actor} · {r.timestamp} IST
-                          </small>
-                        </span>
-                        <ChevronRight size={16} />
-                      </summary>
-                      <div className="audit-diff">
-                        <p>Changed: {r.fields}</p>
-                        <div>
-                          <section>
-                            <b>Before</b>
-                            <pre>
-                              {JSON.stringify(safeParse(r.old), null, 2)}
-                            </pre>
-                          </section>
-                          <section>
-                            <b>After</b>
-                            <pre>
-                              {JSON.stringify(safeParse(r.updated), null, 2)}
-                            </pre>
-                          </section>
-                        </div>
-                      </div>
-                    </details>
-                  ))}
-                {!data.audit.length && (
-                  <div className="empty">
-                    Changes saved to Google Sheets will appear here.
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-          {page === "Reports" && (
-            <div className="entity-grid">
-              {[
-                "Weekly Expense Report",
-                "Monthly Financial Summary",
-                "YTD Financial Summary",
-                "Annual Financial Report",
-                "Category Expense Report",
-                "Tag Report",
-                "Merchant Report",
-                "Investment Contribution Report",
-                "Ram vs Varsha Report",
-                "Account Statement",
-                "Audit History Report",
-              ].map((title) => (
-                <section className="card report-card" key={title}>
-                  <FileText size={28} />
-                  <h3>{title}</h3>
-                  <p>Uses the selected person, dates, and matching records.</p>
-                  <div className="row-actions">
-                    {["csv", "xlsx", "pdf"].map((f) => (
-                      <button
-                        key={f}
-                        onClick={() =>
-                          exportData(
-                            f,
-                            report(
-                              title,
-                              active,
-                              data.audit.filter(
-                                (a) =>
-                                  String(a.timestamp).slice(0, 10) >=
-                                    range[0] &&
-                                  String(a.timestamp).slice(0, 10) <=
-                                    range[1] &&
-                                  (person === "Combined" ||
-                                    String(a.actor).startsWith(person)),
-                              ),
-                            ),
-                            title,
-                          )
-                        }
-                      >
-                        {f.toUpperCase()} <Download size={13} />
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
-          {page === "Settings" && (
-            <section className="card settings">
-              <h2>Your space, your way</h2>
-              <p>
-                Your approved Google account is required to view and update the
-                shared workbook. Financial records are fetched directly from
-                Google Sheets.
-              </p>
-              <label>
-                Appearance
-                <select
-                  value={theme}
-                  onChange={(e) => {
-                    setTheme(e.target.value);
-                    document.documentElement.dataset.theme = e.target.value;
-                    localStorage.setItem("wealthtrack-theme", e.target.value);
-                  }}
-                >
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <label>
-                Default person
-                <select
-                  value={person}
-                  onChange={(e) => setPerson(e.target.value)}
-                >
-                  {["Ram", "Varsha", "Combined"].map((p) => (
-                    <option key={p}>{p}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Reporting period
-                <select
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  {periods.map((p) => (
-                    <option key={p}>{p}</option>
-                  ))}
-                </select>
-              </label>
-              <p>
-                Currency: INR · Indian number formatting
-                <br />
-                Storage: Google Sheets · no browser financial cache
-                <br />
-                Audit actor: {googleSession.email}
-              </p>
-              <button
-                className="primary"
-                disabled={setup}
-                onClick={() =>
-                  mutate("settings", data.settings[0] ? "edit" : "create", {
-                    ...data.settings[0],
-                    name: "Household preferences",
-                    theme,
-                    person,
-                    period,
-                  })
-                }
-              >
-                Save household preferences
-              </button>
-              <hr />
-              <h3>Google Sheets saves</h3>
-              <p>
-                {googleSession
-                  ? "Signed in as " + googleSession.email
-                  : "Sign in with an account that can edit this workbook to save changes to Google Sheets."}
-              </p>
-              <label>
-                Google Web OAuth client ID
-                <input
-                  aria-label="Google Web OAuth client ID"
-                  value={clientId}
-                  placeholder="…apps.googleusercontent.com"
-                  onChange={(e) => setClientId(e.target.value)}
-                />
-              </label>
-              <div className="row-actions">
-                <button
-                  onClick={() => {
-                    try {
-                      saveClientId(clientId);
-                      setNotice("Google client ID saved for this browser.");
-                    } catch (e: any) {
-                      setError(e.message);
-                    }
-                  }}
-                >
-                  Save client ID
-                </button>
-                <button
-                  className="primary"
-                  disabled={connecting || !authReady}
-                  onClick={connectGoogle}
-                >
-                  {connecting ? "Connecting…" : "Sign in with Google"}
-                </button>
-                {googleSession && (
-                  <button onClick={() => signOut()}>Sign out</button>
-                )}
-              </div>
-              <details className="google-setup">
-                <summary>Set up Google sign-in once</summary>
-                <ol>
-                  <li>
-                    Create or select a project in{" "}
-                    <a
-                      href="https://console.cloud.google.com/apis/credentials"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Google Cloud Console
-                    </a>
-                    .
-                  </li>
-                  <li>
-                    Enable the Google Sheets API and configure Google Auth
-                    Platform. For an app in Testing, add Ram and Varsha as test
-                    users.
-                  </li>
-                  <li>
-                    Create an OAuth client of type Web application. Add{" "}
-                    <code>http://127.0.0.1:3000</code> and{" "}
-                    <code>http://localhost:3000</code> as authorized JavaScript
-                    origins. Add your GitHub Pages HTTPS origin when you
-                    publish.
-                  </li>
-                  <li>
-                    Paste the client ID above. Do not paste a client secret.
-                  </li>
-                </ol>
-              </details>
-              <p>
-                First connection creates recovery copies of the ledger, tags and
-                summaries within this workbook, adds stable IDs, and prepares
-                supporting tabs. Your short-lived login is kept on this device
-                so reopening the app does not require sign-in while the Google
-                token is valid. Version checks reduce conflicts, but
-                browser-only writes cannot guarantee a lock across devices or
-                manual sheet edits.
-              </p>
-              <hr />
-              <h3>Google Sheet</h3>
-              <p>
-                {sheetStatus}
-                {sheetTime ? " · last read " + sheetTime : ""}. Refreshes every
-                15 seconds while open. Failed requests show an error without a
-                cached fallback.
-              </p>
-              <div className="row-actions">
-                <button onClick={() => refreshSheet()}>
-                  <RefreshCw size={15} />
-                  Refresh Google Sheet
-                </button>
-                <a href={SHEET_URL} target="_blank" rel="noreferrer">
-                  Open Google Sheet ↗
-                </a>
-              </div>
-              <p>
-                All saves update the shared workbook after Google confirms the
-                request.
-              </p>
-              <hr />
-              <h3>Your data & backups</h3>
-              <p>
-                Download a JSON export fetched directly from Google Sheets.
-                Exports are never used as a fallback or restored into browser
-                storage.
-              </p>
-              <div className="row-actions">
-                <button
-                  onClick={async () => {
-                    try {
-                      const current = (await readGoogleSnapshot()).data;
-                      const url = URL.createObjectURL(
-                        new Blob(
-                          [
-                            JSON.stringify(
-                              {
-                                schemaVersion: 1,
-                                exportedAt: new Date().toISOString(),
-                                data: current,
-                              },
-                              null,
-                              2,
-                            ),
-                          ],
-                          {
-                            type: "application/json",
-                          },
-                        ),
-                      );
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "Budget Tracker-backup-" + today() + ".json";
-                      a.click();
-                      setTimeout(() => URL.revokeObjectURL(url), 1000);
-                    } catch (e: any) {
-                      setError(e.message);
-                    }
-                  }}
-                >
-                  <Download size={15} />
-                  Download JSON backup
-                </button>
-              </div>
-            </section>
           )}
           <footer>
             <span className="brand-small">budget tracker.</span>
@@ -2383,7 +2624,7 @@ export default function Home() {
               </div>
               <button
                 aria-label="Close form"
-                disabled={saving}
+                disabled={saving || setup || syncing}
                 onClick={() => setModal(null)}
               >
                 <X />
@@ -2713,12 +2954,15 @@ export default function Home() {
                 </small>
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || setup || syncing}
                   onClick={() => setModal(null)}
                 >
                   Cancel
                 </button>
-                <button className="primary" disabled={saving || setup}>
+                <button
+                  className="primary"
+                  disabled={saving || setup || syncing}
+                >
                   {saving
                     ? "Saving…"
                     : "Save " +
@@ -2834,9 +3078,12 @@ export default function Home() {
               transaction={
                 data.transactions.find((row) => row.id === detail.id) || detail
               }
-              disabled={saving}
+              disabled={saving || stale || syncing}
+              onBusyChange={(value) => {
+                attachmentBusy.current = value;
+              }}
               onAttach={async (receipts) => {
-                const latest = data.transactions.find(
+                const latest = dataRef.current.transactions.find(
                   (row) => row.id === detail.id,
                 );
                 if (!latest)
@@ -2850,11 +3097,16 @@ export default function Home() {
                   }))
                 )
                   throw Error(
-                    "Google Sheets did not confirm the receipt link. Retry the same file after reconnecting.",
+                    "Google Sheets did not confirm the receipt update. Reconnect and check the transaction before retrying.",
                   );
               }}
             />
             <h3>History</h3>
+            {!fetchedAt.audit && (
+              <p>
+                History has not been cached yet. Connect and sync to load it.
+              </p>
+            )}
             {data.audit
               .filter((a) => a.entityId === detail.id)
               .map((a) => (
@@ -2867,6 +3119,7 @@ export default function Home() {
               ))}
             <button
               className="primary"
+              disabled={stale || syncing || saving}
               onClick={() => {
                 open("transactions", detail);
                 setDetail(null);

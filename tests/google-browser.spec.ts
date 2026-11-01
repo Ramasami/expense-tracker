@@ -45,25 +45,31 @@ test("login survives refresh, fetches new sheet values, and sign-out hides data"
     page.getByRole("button", { name: "Sign in with Google", exact: true }),
   ).toBeEnabled();
 });
-test("failed reads hide prior data and startup never falls back to browser storage", async ({
+test("failed reads show a marked read-only cache, including after reload", async ({
   page,
 }) => {
   const { state } = await mockGoogle(page);
   await login(page);
   state.failReads = true;
   await page.getByRole("button", { name: "Refresh data", exact: true }).click();
-  await expect(page.locator(".auth-screen [role=alert]")).toContainText(
+  await expect(page.locator(".main .alert")).toContainText(
     "Sheets unavailable",
   );
-  await expect(page.locator("nav")).toHaveCount(0);
+  await expect(page.locator(".offline-banner")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toBeDisabled();
   await page.reload();
-  await expect(page.locator(".auth-screen [role=alert]")).toContainText(
+  await expect(page.locator(".main .alert")).toContainText(
     "Sheets unavailable",
   );
-  await expect(page.locator("nav")).toHaveCount(0);
+  await expect(page.locator(".offline-banner")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toBeDisabled();
   expect(state.signIns).toBe(1);
   state.failReads = false;
-  await page.getByRole("button", { name: "Retry Google Sheets" }).click();
+  await page.getByRole("button", { name: "Sync now", exact: true }).click();
   await expect(page.locator(".sync")).toContainText("Google connected");
 });
 test("confirmed Google saves persist to the sheet and a failed save does not write a local replacement", async ({
@@ -88,10 +94,13 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Must not save locally");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.locator(".auth-screen [role=alert]")).toContainText(
+  await expect(page.locator(".main .alert")).toContainText(
     "Sheets unavailable",
   );
-  await expect(page.locator("nav")).toHaveCount(0);
+  await expect(page.locator(".offline-banner")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toBeDisabled();
   state.failWrites = false;
   await page.reload();
   await expect(page.locator(".sync")).toContainText("Google connected");
@@ -189,6 +198,9 @@ test("receipts upload to Drive, link to the sheet, and fetch image bytes only wh
     .getByRole("button", { name: /^Transactions/ })
     .click();
   await page.locator(".merchant").first().click();
+  await expect(
+    page.getByLabel("Upload bill or receipt", { exact: true }),
+  ).toBeEnabled();
   await page
     .getByLabel("Upload bill or receipt", { exact: true })
     .setInputFiles({ name: "bill.png", mimeType: "image/png", buffer: png });
@@ -205,6 +217,9 @@ test("receipts upload to Drive, link to the sheet, and fetch image bytes only wh
     .getByRole("button", { name: /^Transactions/ })
     .click();
   await page.locator(".merchant").first().click();
+  await expect(
+    page.getByLabel("Upload bill or receipt", { exact: true }),
+  ).toBeEnabled();
   expect(downloads).toBe(0);
   await page
     .getByRole("button", { name: "View bill.png", exact: true })
@@ -323,6 +338,9 @@ test("multiple receipts compress photos and show upload and lazy download progre
     .getByRole("button", { name: /^Transactions/ })
     .click();
   await page.locator(".merchant").first().click();
+  await expect(
+    page.getByLabel("Upload bill or receipt", { exact: true }),
+  ).toBeEnabled();
   const writesBefore = sheetWrites;
   originalSize = await page.evaluate(async () => {
     const canvas = document.createElement("canvas");
@@ -435,6 +453,9 @@ test("a partial receipt batch saves successful files and reports the failed file
     .getByRole("button", { name: /^Transactions/ })
     .click();
   await page.locator(".merchant").first().click();
+  await expect(
+    page.getByLabel("Upload bill or receipt", { exact: true }),
+  ).toBeEnabled();
   await page
     .getByLabel("Upload bill or receipt", { exact: true })
     .setInputFiles([
@@ -461,4 +482,197 @@ test("a partial receipt batch saves successful files and reports the failed file
   const receipts = JSON.parse(f.grids["Expense Ledger"][1][22]);
   expect(receipts).toHaveLength(1);
   expect(receipts[0].name).toBe("good.pdf");
+});
+
+for (const mode of [
+  "owner",
+  "reader",
+  "drive-failure",
+  "sheet-failure",
+] as const) {
+  test(`receipt deletion handles ${mode} without reporting link-only deletion as success`, async ({
+    page,
+  }) => {
+    const { f, state } = await mockGoogle(page);
+    f.grids["Expense Ledger"][1][22] = JSON.stringify([
+      {
+        id: "receipt-delete",
+        name: "bill.pdf",
+        mimeType: "application/pdf",
+        size: 20,
+        uploadedAt: "2026-11-01",
+      },
+    ]);
+    let trashed = false;
+    const changes: boolean[] = [];
+    await page.route(
+      "https://www.googleapis.com/drive/v3/files/receipt-delete**",
+      async (route) => {
+        if (route.request().method() === "PATCH") {
+          const requested = route.request().postDataJSON().trashed;
+          changes.push(requested);
+          if (mode === "drive-failure")
+            return route.fulfill({
+              status: 503,
+              json: { error: { message: "Drive refused trashing" } },
+            });
+          trashed = requested;
+          return route.fulfill({ json: { id: "receipt-delete", trashed } });
+        }
+        return route.fulfill({
+          json: {
+            id: "receipt-delete",
+            trashed,
+            capabilities: { canTrash: mode !== "reader" },
+          },
+        });
+      },
+    );
+    await login(page);
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page.locator(".merchant").first().click();
+    await expect(
+      page.getByLabel("Upload bill or receipt", { exact: true }),
+    ).toBeEnabled();
+    await expect(
+      page.getByLabel("Upload bill or receipt", { exact: true }),
+    ).toBeEnabled();
+    if (mode === "sheet-failure") state.failWrites = true;
+    page.once("dialog", (dialog) => dialog.accept());
+    await page
+      .getByRole("button", { name: "Delete receipt bill.pdf", exact: true })
+      .click();
+    if (mode === "owner") {
+      await expect(
+        page.getByRole("button", { name: "View bill.pdf", exact: true }),
+      ).toHaveCount(0);
+      await expect(page.locator(".receipts")).toContainText(
+        "moved to Google Drive Trash",
+      );
+      expect(trashed).toBe(true);
+      expect(JSON.parse(f.grids["Expense Ledger"][1][22])).toEqual([]);
+    } else {
+      await expect(page.locator(".receipts [role=alert]")).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "View bill.pdf", exact: true }),
+      ).toBeVisible();
+      expect(JSON.parse(f.grids["Expense Ledger"][1][22])).toHaveLength(1);
+      expect(trashed).toBe(false);
+      expect(changes).toEqual(
+        mode === "reader"
+          ? []
+          : mode === "sheet-failure"
+            ? [true, false]
+            : [true],
+      );
+    }
+  });
+}
+
+test("pull-to-refresh requests just the visible screen and does not poll Sheets", async ({
+  page,
+}) => {
+  const { f, state } = await mockGoogle(page);
+  await login(page);
+  expect(state.ranges.at(-1)).toHaveLength(3);
+  expect(state.ranges.at(-1)?.join(" ")).not.toContain("Audit Log");
+  const before = state.sheetRequests;
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await expect(
+    page.getByLabel("Search transactions", { exact: true }),
+  ).toBeVisible();
+  expect(state.sheetRequests).toBe(before);
+  f.grids["Expense Ledger"][1][4] = 888;
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const target = document.querySelector(".greeting")!;
+    const touch = (y: number) =>
+      new Touch({ identifier: 1, target, clientX: 120, clientY: y });
+    target.dispatchEvent(
+      new TouchEvent("touchstart", { bubbles: true, touches: [touch(100)] }),
+    );
+    target.dispatchEvent(
+      new TouchEvent("touchmove", {
+        bubbles: true,
+        cancelable: true,
+        touches: [touch(280)],
+      }),
+    );
+  });
+  await expect(page.locator(".pull-indicator")).toContainText(
+    "Release to sync",
+  );
+  await page.evaluate(() =>
+    document
+      .querySelector(".greeting")!
+      .dispatchEvent(
+        new TouchEvent("touchend", { bubbles: true, touches: [] }),
+      ),
+  );
+  await expect(page.locator("tbody")).toContainText("₹888");
+  expect(state.sheetRequests - before).toBe(2);
+  await page.clock.install();
+  const synced = state.sheetRequests;
+  await page.clock.fastForward(30000);
+  expect(state.sheetRequests).toBe(synced);
+});
+
+test("an offline phone relaunch uses the app shell and cached data with edits disabled", async ({
+  page,
+  context,
+}) => {
+  const { state } = await mockGoogle(page);
+  await login(page);
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  await expect
+    .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
+    .toBe(true);
+  await page.close();
+  await context.setOffline(true);
+  const offlinePage = await context.newPage();
+  await offlinePage.goto("/");
+  await expect(offlinePage.locator(".offline-banner")).toContainText(
+    "Offline — cached data",
+  );
+  await expect(
+    offlinePage.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toBeDisabled();
+  await expect(offlinePage.locator("nav")).toBeVisible();
+  expect(state.signIns).toBe(1);
+  await offlinePage
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await expect(offlinePage.locator("tbody")).toContainText("₹250");
+  const next = await mockGoogle(offlinePage);
+  next.f.grids["Expense Ledger"][1][4] = 999;
+  await context.setOffline(false);
+  await expect(offlinePage.locator(".offline-banner")).toHaveCount(0);
+  await expect(offlinePage.locator("tbody")).toContainText("₹999");
+  await expect(
+    offlinePage.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toBeEnabled();
+  await context.setOffline(true);
+  await offlinePage.evaluate(() => {
+    const key = "wealthtrack-google-session";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    localStorage.setItem(
+      key,
+      JSON.stringify({ ...saved, expiresAt: Date.now() - 1 }),
+    );
+  });
+  await offlinePage.reload();
+  await expect(
+    offlinePage.getByRole("button", {
+      name: "Sign in with Google",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(offlinePage.locator("nav")).toHaveCount(0);
 });
