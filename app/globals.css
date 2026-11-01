@@ -1696,3 +1696,18 @@ pre {
   margin-top: 12px;
   border-radius: 12px;
 }
+
+.receipt-progress {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.receipt-progress progress {
+  width: 100%;
+  height: 9px;
+  accent-color: var(--coral);
+}
+.receipt-progress small {
+  color: var(--muted);
+}

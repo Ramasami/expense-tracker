@@ -12,10 +12,11 @@ import {
 test("Google sign-in accepts only the two verified approved accounts and clears rejected sessions", async () => {
   const originalFetch = globalThis.fetch;
   const authStorage = new Map<string, string>();
+  const legacyStorage = new Map<string, string>();
   (globalThis as any).sessionStorage = {
-    getItem: (key: string) => authStorage.get(key) || null,
-    setItem: (key: string, value: string) => authStorage.set(key, value),
-    removeItem: (key: string) => authStorage.delete(key),
+    getItem: (key: string) => legacyStorage.get(key) || null,
+    setItem: (key: string, value: string) => legacyStorage.set(key, value),
+    removeItem: (key: string) => legacyStorage.delete(key),
   };
   let profile: { email: string; email_verified: boolean };
   let requests = 0;
@@ -36,7 +37,12 @@ test("Google sign-in accepts only the two verified approved accounts and clears 
     },
   };
   (globalThis as any).localStorage = {
-    getItem: () => "123-test.apps.googleusercontent.com",
+    getItem: (key: string) =>
+      key === "wealthtrack-google-client-id"
+        ? "123-test.apps.googleusercontent.com"
+        : authStorage.get(key) || null,
+    setItem: (key: string, value: string) => authStorage.set(key, value),
+    removeItem: (key: string) => authStorage.delete(key),
   };
   globalThis.fetch = async (input) => {
     assert.equal(
@@ -104,6 +110,22 @@ test("Google sign-in accepts only the two verified approved accounts and clears 
     profile = { email: "outsider@example.com", email_verified: true };
     await assert.rejects(restoreGoogleSession(), /not authorized/);
     assert.equal(currentGoogleSession(), null);
+    assert.equal(authStorage.has(SESSION_KEY), false);
+    profile = { email: "tnvarsha.99@gmail.com", email_verified: true };
+    legacyStorage.set(
+      SESSION_KEY,
+      JSON.stringify({
+        accessToken: "test-token",
+        expiresAt: Date.now() + 3600000,
+      }),
+    );
+    assert.equal(
+      (await restoreGoogleSession())?.email,
+      "tnvarsha.99@gmail.com",
+    );
+    assert.equal(legacyStorage.has(SESSION_KEY), false);
+    assert.equal(authStorage.has(SESSION_KEY), true);
+    disconnectGoogle();
     assert.equal(authStorage.has(SESSION_KEY), false);
   } finally {
     disconnectGoogle();

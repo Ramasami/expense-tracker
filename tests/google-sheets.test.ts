@@ -12,10 +12,11 @@ async function signed<T>(fn: (f: ReturnType<typeof fixture>) => Promise<T>) {
   const f = fixture(),
     originalFetch = globalThis.fetch;
   const authStorage = new Map<string, string>();
+  const legacyStorage = new Map<string, string>();
   (globalThis as any).sessionStorage = {
-    getItem: (key: string) => authStorage.get(key) || null,
-    setItem: (key: string, value: string) => authStorage.set(key, value),
-    removeItem: (key: string) => authStorage.delete(key),
+    getItem: (key: string) => legacyStorage.get(key) || null,
+    setItem: (key: string, value: string) => legacyStorage.set(key, value),
+    removeItem: (key: string) => legacyStorage.delete(key),
   };
   globalThis.fetch = f.fetcher;
   (globalThis as any).window = {
@@ -35,7 +36,12 @@ async function signed<T>(fn: (f: ReturnType<typeof fixture>) => Promise<T>) {
     },
   };
   (globalThis as any).localStorage = {
-    getItem: () => "123-test.apps.googleusercontent.com",
+    getItem: (key: string) =>
+      key === "wealthtrack-google-client-id"
+        ? "123-test.apps.googleusercontent.com"
+        : authStorage.get(key) || null,
+    setItem: (key: string, value: string) => authStorage.set(key, value),
+    removeItem: (key: string) => authStorage.delete(key),
   };
   try {
     await signInGoogle();

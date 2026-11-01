@@ -293,12 +293,21 @@ export default function Home() {
       if (currentGoogleSession()) {
         if (!document.hidden) refreshSheet();
       } else if (
+        localStorage.getItem("wealthtrack-google-session") === null &&
         sessionStorage.getItem("wealthtrack-google-session") === null
       ) {
         // Also hides data as soon as the token expires.
         signOut();
       }
     };
+    const onStoredSessionChange = (event: StorageEvent) => {
+      if (
+        (event.key === "wealthtrack-google-session" || event.key === null) &&
+        !event.newValue
+      )
+        signOut();
+    };
+    window.addEventListener("storage", onStoredSessionChange);
     const timer = setInterval(checkSession, 15000);
     document.addEventListener("visibilitychange", checkSession);
     if ("BroadcastChannel" in window) {
@@ -311,6 +320,7 @@ export default function Home() {
       cancelled = true;
       epoch.current++;
       clearInterval(timer);
+      window.removeEventListener("storage", onStoredSessionChange);
       document.removeEventListener("visibilitychange", checkSession);
       channel.current?.close();
     };
@@ -2266,10 +2276,11 @@ export default function Home() {
               <p>
                 First connection creates recovery copies of the ledger, tags and
                 summaries within this workbook, adds stable IDs, and prepares
-                supporting tabs. Your short-lived login is kept in this tab’s
-                session storage so refreshes do not require another sign-in.
-                Version checks reduce conflicts, but browser-only writes cannot
-                guarantee a lock across devices or manual sheet edits.
+                supporting tabs. Your short-lived login is kept on this device
+                so reopening the app does not require sign-in while the Google
+                token is valid. Version checks reduce conflicts, but
+                browser-only writes cannot guarantee a lock across devices or
+                manual sheet edits.
               </p>
               <hr />
               <h3>Google Sheet</h3>

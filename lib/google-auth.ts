@@ -60,7 +60,8 @@ async function verifyProfile(
 }
 export async function restoreGoogleSession(): Promise<GoogleSession | null> {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw =
+      localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (
@@ -74,6 +75,16 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
     }
     // Never trust an identity stored by the browser: revalidate it with Google.
     const verified = await verifyProfile(saved.accessToken, saved.expiresAt);
+    // Persist only the short-lived credential, never financial records or a trusted identity.
+    // Migrates logins saved by the previous tab-only version after Google verifies them.
+    localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        accessToken: saved.accessToken,
+        expiresAt: saved.expiresAt,
+      }),
+    );
+    sessionStorage.removeItem(SESSION_KEY);
     token = saved.accessToken;
     session = verified;
     return verified;
@@ -132,7 +143,7 @@ export function signInGoogle(): Promise<GoogleSession> {
             response.access_token,
             expiresAt,
           );
-          sessionStorage.setItem(
+          localStorage.setItem(
             SESSION_KEY,
             JSON.stringify({ accessToken: response.access_token, expiresAt }),
           );
@@ -160,8 +171,13 @@ export function disconnectGoogle() {
   token = "";
   session = null;
   try {
-    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
   } catch {
     /* Memory is always cleared. */
+  }
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* Clear the legacy store independently. */
   }
 }

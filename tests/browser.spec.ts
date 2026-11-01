@@ -33,7 +33,7 @@ test("an unapproved Google account cannot request the workbook", async ({
   expect(state.sheetRequests).toBe(0);
   expect(
     await page.evaluate(() =>
-      sessionStorage.getItem("wealthtrack-google-session"),
+      localStorage.getItem("wealthtrack-google-session"),
     ),
   ).toBeNull();
 });
@@ -42,7 +42,7 @@ test("expired stored login requires sign-in before any sheet fetch", async ({
 }) => {
   const { state } = await mockGoogle(page);
   await page.addInitScript(() =>
-    sessionStorage.setItem(
+    localStorage.setItem(
       "wealthtrack-google-session",
       JSON.stringify({ accessToken: "expired", expiresAt: Date.now() - 1000 }),
     ),
