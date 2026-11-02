@@ -63,6 +63,7 @@ async function service(action: string, args: Record<string, unknown> = {}) {
 }
 export async function scannerStatus(): Promise<{
   provider?: AIProvider;
+  providers?: { provider: AIProvider; configured: boolean }[];
   configured: boolean;
   canConfigure?: boolean;
   model: string;

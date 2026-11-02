@@ -349,7 +349,13 @@ function scannerConfig_(expected) {
     throw Error(
       "The AI provider changed. Reopen the upload or refresh Settings before continuing.",
     );
-  const spec = AI_PROVIDERS[provider];
+  return scannerProviderConfig_(provider);
+}
+function scannerProviderConfig_(provider) {
+  if (!Object.prototype.hasOwnProperty.call(AI_PROVIDERS, provider))
+    throw Error("Unsupported AI provider.");
+  const props = PropertiesService.getScriptProperties(),
+    spec = AI_PROVIDERS[provider];
   return {
     provider: provider,
     name: spec.name,
@@ -364,6 +370,12 @@ function scannerStatus_(actor) {
     configured: !!config.key,
     model: config.model,
     canConfigure: actor === PEOPLE[0],
+    providers: Object.keys(AI_PROVIDERS).map(function (provider) {
+      return {
+        provider: provider,
+        configured: !!scannerProviderConfig_(provider).key,
+      };
+    }),
   };
 }
 function selectScannerProvider_(req, actor) {
@@ -375,6 +387,8 @@ function selectScannerProvider_(req, actor) {
   if (!lock.tryLock(10000))
     throw Error("Scanner settings are busy. Retry shortly.");
   try {
+    if (!scannerProviderConfig_(req.provider).key)
+      throw Error("Save this provider's API key before selecting it.");
     PropertiesService.getScriptProperties().setProperty(
       "AI_PROVIDER",
       req.provider,
@@ -835,12 +849,15 @@ function analyzeDocuments_(req, actor) {
 function configureScanner_(req, actor) {
   if (actor !== PEOPLE[0])
     throw Error("Only the service owner can configure the shared scanner key.");
-  const config = scannerConfig_(req.provider);
+  const config =
+    req.provider === undefined
+      ? scannerConfig_()
+      : scannerProviderConfig_(req.provider);
   const key = typeof req.apiKey === "string" ? req.apiKey.trim() : "";
   if (
     config.provider === "openai"
       ? !/^sk-[A-Za-z0-9_-]{16,300}$/.test(key)
-      : !/^[A-Za-z0-9_-]{20,300}$/.test(key)
+      : !/^[\x21-\x7e]{20,2048}$/.test(key)
   )
     throw Error(
       config.provider === "openai"
@@ -852,7 +869,6 @@ function configureScanner_(req, actor) {
     throw Error("Scanner settings are busy. Retry shortly.");
   try {
     const props = PropertiesService.getScriptProperties();
-    scannerConfig_(config.provider); // Reject a provider switch while waiting for the lock.
     props.setProperty(AI_PROVIDERS[config.provider].key, key);
     return scannerStatus_(actor);
   } finally {

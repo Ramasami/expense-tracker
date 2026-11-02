@@ -2665,13 +2665,13 @@ test("Settings saves an API key server-side once, clears the field, and shows co
   };
   await openSettings();
   const key = page.getByLabel("OpenAI API key", { exact: true });
-  await expect(key).toHaveAttribute("type", "password");
+  await expect(key).toHaveAttribute("type", "text");
   await expect(page.locator(".scanner-settings")).toContainText(
     "Restricted project API key",
   );
   await key.fill(secret);
   await page
-    .getByRole("button", { name: "Save API key securely", exact: true })
+    .getByRole("button", { name: "Save OpenAI API key", exact: true })
     .click();
   await expect(page.locator(".scanner-settings [role=status]")).toContainText(
     "API key saved securely",
@@ -2690,9 +2690,7 @@ test("Settings saves an API key server-side once, clears the field, and shows co
   await expect(page.locator(".scanner-settings [role=status]")).toContainText(
     "Configured",
   );
-  await expect(
-    page.getByText("Replace API key (optional)", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator('[data-provider="openai"]')).toContainText("Saved");
   await expect(
     page.getByLabel("OpenAI API key", { exact: true }),
   ).toBeVisible();
@@ -3053,11 +3051,13 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
   const saves: string[] = [];
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
     const req = route.request().postDataJSON();
-    if (req.action === "selectScannerProvider") provider = req.provider;
-    else if (req.action === "configureScanner") {
-      expect(req.provider).toBe(provider);
-      configured[provider] = true;
-      saves.push(provider);
+    if (req.action === "selectScannerProvider") {
+      expect(configured[req.provider]).toBe(true);
+      provider = req.provider;
+    } else if (req.action === "configureScanner") {
+      configured[req.provider] = true;
+      saves.push(req.provider);
+      expect(req.apiKey).toBe("synthetic.provider-key-test-only");
     } else if (req.action === "testScannerKey") {
       expect(req.provider).toBe(provider);
       return route.fulfill({
@@ -3076,6 +3076,9 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
         ok: true,
         result: {
           provider,
+          providers: Object.entries(configured).map(
+            ([provider, configured]) => ({ provider, configured }),
+          ),
           configured: configured[provider],
           model: "test-" + provider,
           canConfigure: true,
@@ -3091,30 +3094,33 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
     .click();
   const select = page.getByLabel("AI provider", { exact: true });
   await expect(select).toBeEnabled();
+  await expect(settings.locator(".scanner-key-row")).toHaveCount(4);
+  await expect(select.locator("option")).toHaveCount(1);
   for (const id of ["gemini", "groq", "claude"] as const) {
-    await select.selectOption(id);
-    const key = page.getByLabel(
-      `${id === "gemini" ? "Gemini" : id === "groq" ? "Groq" : "Claude"} API key`,
-      { exact: true },
-    );
-    await expect(key).toBeEnabled();
-    await expect(settings.locator(".scanner-privacy")).toHaveCount(0);
-    await expect(settings).not.toContainText("human review");
-    await key.fill("synthetic-provider-key-test-only");
+    const name = id === "gemini" ? "Gemini" : id === "groq" ? "Groq" : "Claude";
+    const key = page.getByLabel(`${name} API key`, { exact: true });
+    await expect(key).toBeVisible();
+    await expect(key).toHaveAttribute("type", "text");
+    await expect(select.locator(`option[value="${id}"]`)).toHaveCount(0);
+    await key.fill("  synthetic.provider-key-test-only  ");
     await settings
-      .getByRole("button", { name: "Save API key securely", exact: true })
+      .getByRole("button", { name: `Save ${name} API key`, exact: true })
       .click();
     await expect(settings.getByRole("status")).toContainText(
       "API key saved securely",
     );
     await expect(key).toHaveValue("");
-    await settings
-      .getByRole("button", { name: "Test saved API key", exact: true })
-      .click();
-    await expect(settings.getByRole("status")).toContainText(
-      "Connection successful",
-    );
+    await expect(select).toHaveValue("openai");
+    await expect(select.locator(`option[value="${id}"]`)).toHaveCount(1);
   }
+  await expect(select.locator("option")).toHaveCount(4);
+  await select.selectOption("claude");
+  await settings
+    .getByRole("button", { name: "Test saved API key", exact: true })
+    .click();
+  await expect(settings.getByRole("status")).toContainText(
+    "Connection successful",
+  );
   await select.selectOption("openai");
   await expect(settings.getByRole("status")).toContainText("Configured");
   await select.selectOption("gemini");
@@ -3147,5 +3153,79 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
       JSON.stringify({ ...localStorage }) +
       JSON.stringify({ ...sessionStorage }),
   );
-  expect(stored).not.toContain("synthetic-provider-key-test-only");
+  expect(stored).not.toContain("synthetic.provider-key-test-only");
+});
+
+test("Gemini key text entry accepts a copied key and only saved providers become selectable", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  let configured = false,
+    provider = "openai",
+    saves = 0;
+  const secret = "AQ.synthetic.gemini-key-with.punctuation";
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const req = route.request().postDataJSON();
+    if (req.action === "configureScanner") {
+      expect(req.provider).toBe("gemini");
+      expect(req.apiKey).toBe(secret);
+      configured = true;
+      saves++;
+    } else if (req.action === "selectScannerProvider") {
+      expect(configured).toBe(true);
+      provider = req.provider;
+    } else expect(req.action).toBe("scannerStatus");
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          provider,
+          canConfigure: true,
+          configured: provider === "gemini" && configured,
+          model: "test-model",
+          providers: ["openai", "gemini", "groq", "claude"].map((id) => ({
+            provider: id,
+            configured: id === "gemini" && configured,
+          })),
+        },
+      },
+    });
+  });
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  const select = page.getByLabel("AI provider", { exact: true });
+  await expect(select).toBeDisabled();
+  for (const name of ["OpenAI", "Gemini", "Groq", "Claude"])
+    await expect(
+      page.getByLabel(`${name} API key`, { exact: true }),
+    ).toBeVisible();
+  const key = page.getByLabel("Gemini API key", { exact: true });
+  await expect(key).toHaveAttribute("type", "text");
+  await expect(key).not.toHaveAttribute("pattern");
+  await key.fill("key with internal whitespace");
+  await page
+    .getByRole("button", { name: "Save Gemini API key", exact: true })
+    .click();
+  await expect(page.locator(".scanner-settings [role=alert]")).toContainText(
+    "Paste only the Gemini API key",
+  );
+  expect(saves).toBe(0);
+  await key.fill(`  ${secret}  `);
+  await page
+    .getByRole("button", { name: "Save Gemini API key", exact: true })
+    .click();
+  await expect(page.locator('[data-provider="gemini"]')).toContainText("Saved");
+  await expect(key).toHaveValue("");
+  await expect(select).toBeEnabled();
+  await expect(select).toHaveValue("");
+  await expect(select.locator('option[value="openai"]')).toHaveCount(0);
+  await expect(select.locator('option[value="gemini"]')).toHaveCount(1);
+  await select.selectOption("gemini");
+  await expect(
+    page.getByRole("button", { name: "Test saved API key", exact: true }),
+  ).toBeEnabled();
+  expect(saves).toBe(1);
 });

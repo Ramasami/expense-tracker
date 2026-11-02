@@ -329,10 +329,11 @@ test("provider selection is owner-only, allowlisted and preserves both saved key
       () => sandbox.selectScannerProvider_({ provider }, owner),
       /Unsupported/,
     );
-  assert.equal(
-    sandbox.selectScannerProvider_({ provider: "gemini" }, owner).configured,
-    false,
+  assert.throws(
+    () => sandbox.selectScannerProvider_({ provider: "gemini" }, owner),
+    /Save this provider/,
   );
+  assert.equal(props.get("AI_PROVIDER"), undefined);
   const secret = "AIza-synthetic-gemini-key-for-test-only";
   assert.throws(
     () =>
@@ -346,7 +347,11 @@ test("provider selection is owner-only, allowlisted and preserves both saved key
     { provider: "gemini", apiKey: secret },
     owner,
   );
-  assert.equal(saved.provider, "gemini");
+  assert.equal(saved.provider, "openai");
+  assert.equal(
+    saved.providers.find((item: any) => item.provider === "gemini").configured,
+    true,
+  );
   assert.equal(saved.configured, true);
   assert.ok(!JSON.stringify(saved).includes(secret));
   assert.equal(props.get("OPENAI_API_KEY"), "server-test-key");
@@ -658,26 +663,18 @@ test("Claude reads inline images and PDFs with structured proposals and fails sa
   }
 });
 
-test("Groq and Claude key configuration preserves other providers and rejects stale configuration", () => {
+test("Groq and Claude keys can be saved independently without changing the active provider", () => {
   const context = scanner();
   const owner = "ramasami.official@gmail.com";
   for (const [provider, property] of [
     ["groq", "GROQ_API_KEY"],
     ["claude", "ANTHROPIC_API_KEY"],
   ]) {
-    context.sandbox.selectScannerProvider_({ provider }, owner);
-    assert.throws(
-      () =>
-        context.sandbox.configureScanner_(
-          { provider: "openai", apiKey: "sk-synthetic-old-provider-key" },
-          owner,
-        ),
-      /provider changed/,
-    );
     context.sandbox.configureScanner_(
       { provider, apiKey: "synthetic-private-provider-key" },
       owner,
     );
+    assert.equal(context.sandbox.scannerStatus_(owner).provider, "openai");
     assert.equal(context.props.get(property), "synthetic-private-provider-key");
     assert.equal(context.props.get("OPENAI_API_KEY"), "server-test-key");
     assert.throws(
@@ -690,4 +687,57 @@ test("Groq and Claude key configuration preserves other providers and rejects st
     );
     assert.equal(context.props.get(property), "synthetic-private-provider-key");
   }
+});
+
+test("all saved key statuses survive selection and keys with punctuation or surrounding whitespace save without browser format restrictions", () => {
+  const { sandbox, props } = scanner(false),
+    owner = "ramasami.official@gmail.com";
+  assert.equal(sandbox.scannerStatus_(owner).providers.length, 4);
+  assert.throws(
+    () => sandbox.selectScannerProvider_({ provider: "gemini" }, owner),
+    /Save this provider/,
+  );
+  for (const [provider, property, key] of [
+    ["openai", "OPENAI_API_KEY", "sk-synthetic-openai-key-long-enough"],
+    ["gemini", "GEMINI_API_KEY", "AQ.synthetic.gemini-key-with.punctuation"],
+    ["groq", "GROQ_API_KEY", "gsk_synthetic-groq-key-long-enough"],
+    ["claude", "ANTHROPIC_API_KEY", "sk-ant-synthetic-claude-key-long-enough"],
+  ]) {
+    const response = sandbox.configureScanner_(
+      { provider, apiKey: "  " + key + "  " },
+      owner,
+    );
+    assert.equal(props.get(property), key);
+    assert.equal(response.provider, "openai");
+    assert.ok(!JSON.stringify(response).includes(key));
+  }
+  for (const item of sandbox.scannerStatus_(owner).providers) {
+    assert.equal(item.configured, true);
+    assert.equal(
+      sandbox.selectScannerProvider_({ provider: item.provider }, owner)
+        .provider,
+      item.provider,
+    );
+  }
+  const before = props.get("GEMINI_API_KEY");
+  for (const key of [
+    "bad",
+    "valid-length-key but has space",
+    "valid-length-key\r\nheader-injection",
+    "x".repeat(2049),
+  ])
+    assert.throws(
+      () =>
+        sandbox.configureScanner_({ provider: "gemini", apiKey: key }, owner),
+      /valid/,
+    );
+  assert.equal(props.get("GEMINI_API_KEY"), before);
+  assert.throws(
+    () =>
+      sandbox.configureScanner_(
+        { provider: "__proto__", apiKey: "synthetic-provider-key" },
+        owner,
+      ),
+    /Unsupported/,
+  );
 });

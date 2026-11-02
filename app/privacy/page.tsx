@@ -44,8 +44,8 @@ export default function PrivacyPage() {
       <h2>Optional AI document scanning</h2>
       <p>
         The service owner can choose OpenAI, Gemini, Groq or Claude and save
-        each provider’s API key through the Settings password field. It is sent
-        over HTTPS to the authenticated Apps Script service and stored only in
+        each provider’s API key through the Settings text field. It is sent over
+        HTTPS to the authenticated Apps Script service and stored only in
         server-side Script properties. The key is never returned to the browser
         or included in financial records, offline caches or backups.
       </p>
