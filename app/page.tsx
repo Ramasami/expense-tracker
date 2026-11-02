@@ -3252,6 +3252,7 @@ export default function Home() {
                     from Google Sheets.
                   </p>
                   <ScannerSettings disabled={stale || syncing || saving} />
+                  <h3>Display & defaults</h3>
                   <label>
                     Appearance
                     <select
@@ -3329,93 +3330,98 @@ export default function Home() {
                     Save household preferences
                   </button>
                   <hr />
-                  <h3>Google Sheets saves</h3>
+                  <h3>Google account</h3>
                   <p>
                     {googleSession
                       ? "Signed in as " + googleSession.email
                       : "Sign in with an account that can edit this workbook to save changes to Google Sheets."}
                   </p>
-                  <label>
-                    Google Web OAuth client ID
-                    <input
-                      aria-label="Google Web OAuth client ID"
-                      value={clientId}
-                      placeholder="…apps.googleusercontent.com"
-                      onChange={(e) => setClientId(e.target.value)}
-                    />
-                  </label>
-                  <div className="row-actions">
+                  <div className="row-actions session-actions">
                     <button
-                      onClick={() => {
-                        try {
-                          saveClientId(clientId);
-                          setNotice("Google client ID saved for this browser.");
-                        } catch (e: any) {
-                          setError(e.message);
-                        }
-                      }}
-                    >
-                      Save client ID
-                    </button>
-                    <button
-                      className="primary"
                       disabled={connecting || !authReady}
                       onClick={connectGoogle}
                     >
-                      {connecting ? "Connecting…" : "Sign in with Google"}
+                      {connecting ? "Connecting…" : "Reconnect Google"}
                     </button>
-                    {googleSession && (
-                      <button onClick={() => signOut()}>Sign out</button>
-                    )}
+                    <button onClick={() => signOut()}>Sign out</button>
                   </div>
-                  <details className="google-setup">
-                    <summary>Set up Google sign-in once</summary>
-                    <ol>
-                      <li>
-                        Create or select a project in{" "}
-                        <a
-                          href="https://console.cloud.google.com/apis/credentials"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Google Cloud Console
-                        </a>
-                        .
-                      </li>
-                      <li>
-                        Enable the Google Sheets API and configure Google Auth
-                        Platform. For an app in Testing, add Ram and Varsha as
-                        test users.
-                      </li>
-                      <li>
-                        Create an OAuth client of type Web application. Add{" "}
-                        <code>http://127.0.0.1:3000</code> and{" "}
-                        <code>http://localhost:3000</code> as authorized
-                        JavaScript origins. Add your GitHub Pages HTTPS origin
-                        when you publish.
-                      </li>
-                      <li>
-                        Paste the client ID above. Do not paste a client secret.
-                      </li>
-                    </ol>
+                  <details className="google-connection-advanced">
+                    <summary>Advanced Google connection setup</summary>
+                    <label>
+                      Google Web OAuth client ID
+                      <input
+                        aria-label="Google Web OAuth client ID"
+                        value={clientId}
+                        placeholder="…apps.googleusercontent.com"
+                        onChange={(e) => setClientId(e.target.value)}
+                      />
+                    </label>
+                    <div className="row-actions">
+                      <button
+                        onClick={() => {
+                          try {
+                            saveClientId(clientId);
+                            setNotice(
+                              "Google client ID saved for this browser.",
+                            );
+                          } catch (e: any) {
+                            setError(e.message);
+                          }
+                        }}
+                      >
+                        Save client ID
+                      </button>{" "}
+                    </div>
+                    <details className="google-setup">
+                      <summary>Set up Google sign-in once</summary>
+                      <ol>
+                        <li>
+                          Create or select a project in{" "}
+                          <a
+                            href="https://console.cloud.google.com/apis/credentials"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Google Cloud Console
+                          </a>
+                          .
+                        </li>
+                        <li>
+                          Enable the Google Sheets API and configure Google Auth
+                          Platform. For an app in Testing, add Ram and Varsha as
+                          test users.
+                        </li>
+                        <li>
+                          Create an OAuth client of type Web application. Add{" "}
+                          <code>http://127.0.0.1:3000</code> and{" "}
+                          <code>http://localhost:3000</code> as authorized
+                          JavaScript origins. Add your GitHub Pages HTTPS origin
+                          when you publish.
+                        </li>
+                        <li>
+                          Paste the client ID above. Do not paste a client
+                          secret.
+                        </li>
+                      </ol>
+                    </details>
+                    <p>
+                      First connection creates recovery copies of the ledger,
+                      tags and summaries within this workbook, adds stable IDs,
+                      and prepares supporting tabs. Your short-lived login is
+                      kept on this device so reopening the app does not require
+                      sign-in while the Google token is valid. Version checks
+                      reduce conflicts, but browser-only writes cannot guarantee
+                      a lock across devices or manual sheet edits.
+                    </p>
                   </details>
-                  <p>
-                    First connection creates recovery copies of the ledger, tags
-                    and summaries within this workbook, adds stable IDs, and
-                    prepares supporting tabs. Your short-lived login is kept on
-                    this device so reopening the app does not require sign-in
-                    while the Google token is valid. Version checks reduce
-                    conflicts, but browser-only writes cannot guarantee a lock
-                    across devices or manual sheet edits.
-                  </p>
                   <hr />
                   <h3>Google Sheet</h3>
                   <p>
                     {sheetStatus}
-                    {sheetTime ? " · last read " + sheetTime : ""}. Refreshes
-                    every on startup and when needed for this screen. Pull down
-                    or press Sync now to force a refresh. Cached data is
-                    read-only when offline.
+                    {sheetTime ? " · last read " + sheetTime : ""}. Refreshes on
+                    startup and when needed for this screen. Pull down or press
+                    Sync now to force a refresh. Cached data is read-only when
+                    offline.
                   </p>
                   <div className="row-actions">
                     <button onClick={() => refreshSheet()}>

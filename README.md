@@ -198,7 +198,7 @@ Each row uses a stable operation ID. Confirmed rows are marked saved and are not
 
 ### AI bills, screenshots and PDFs
 
-Choose **Scan bills & statements**, select **1–5 JPEG/PNG/WebP images or PDFs**, and click **Analyze with AI**. Existing image compression is applied first. Each prepared file must be below **2 MB**, with **4 MB total** per analysis. Large PDFs must be split before upload. The service limits each owner to **20 analyses per day**.
+Choose **Upload using AI**, select **1–5 JPEG/PNG/WebP images or PDFs**, and click **Analyze with AI**. Existing image compression is applied first. Each prepared file must be below **2 MB**, with **4 MB total** per analysis. Large PDFs must be split before upload. The service limits each owner to **20 analyses per day**.
 
 The authenticated Apps Script service sends only the selected documents and active tag names/IDs/types for extraction. The Google token, owner email and the rest of the ledger are not sent to OpenAI. It uses the [Responses API image inputs](https://developers.openai.com/api/docs/guides/images-vision) and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) to return bounded proposals. Images/document text are treated as data, not executable instructions. The extraction endpoint has **no financial Sheet-write path** and no model tools.
 
@@ -261,6 +261,14 @@ The scanner distinguishes OpenAI exhausted credits, project/organization spendin
 
 ### AI document inference and credit card uploads
 
-Image/PDF scans default to **Auto** for statement kind and date format. The scanner infers bank, credit card, bill/receipt or mixed document types and DMY/MDY/YMD date order from visible evidence; ambiguous numeric dates remain unselected for review rather than being guessed. You can override these fields before analysis. **Upload credit card statement** starts the dedicated image/PDF flow; CSV card statements retain their existing card selector. Detected details appear above the review list. A card is matched only when its visible name identifies a unique configured card in the selected account; otherwise choose it in preview. Statement totals, balances and limits are not imported as expenses. Card purchases remain deferred, payment history uses the linked bill flow, and uncertain settlement stays unknown until confirmed.
+Image/PDF scans default to **Auto** for statement kind and date format. The scanner infers bank, credit card, bill/receipt or mixed document types and DMY/MDY/YMD date order from visible evidence; ambiguous numeric dates remain unselected for review rather than being guessed. You can override these fields before analysis. The shared image/PDF upload includes a **Credit card statement** checkbox. When checked, choose a configured card or leave **Auto · identify from uploaded file** selected. CSV card statements retain their existing card selector. Detected details appear above the review list. A card is matched only when its visible name identifies a unique configured card in the selected account; otherwise choose it in preview. Statement totals, balances and limits are not imported as expenses. Card purchases remain deferred, payment history uses the linked bill flow, and uncertain settlement stays unknown until confirmed.
 
 **Analyze with AI** keeps explanatory/setup text inside the collapsed **How it works & setup** panel. Progress and failures remain visible. AI configuration in Settings is always expanded; a configured key is never shown or requested again, and the blank password field is only for deliberate replacement.
+
+
+### Responsive layout review
+
+The main screens are checked at desktop and phone widths with no horizontal page overflow. Phone dialogs use full-width labeled controls; scanner uploads span the available width and explanatory text stays collapsed. Transaction heading actions wrap below the title on small screens. Settings keeps version, AI configuration and everyday preferences visible while advanced Google client setup stays collapsed. The navigation brand remains on one line and long menus can scroll independently.
+
+
+The import dialog has **Upload CSV** and **Upload using AI** tabs. **Download sample CSV** provides example DMY dates and Debit/Credit columns; it does not import or change anything automatically. Select the destination account, build a preview and choose valid tags before confirming any rows.

@@ -3249,3 +3249,129 @@ select:disabled {
   font-size: 11px;
   gap: 5px;
 }
+
+/* Visual review: keep controls readable and setup details out of daily flows. */
+.sidebar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sidebar .brand {
+  font-size: 20px;
+  white-space: nowrap;
+  padding-inline: 4px;
+  gap: 7px;
+}
+.sidebar .brand .logo {
+  flex-shrink: 0;
+}
+.settings {
+  max-width: 960px;
+}
+.google-connection-advanced {
+  margin-top: 20px;
+  padding: 15px;
+  background: var(--soft);
+  border-radius: 14px;
+}
+.google-connection-advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.google-connection-advanced > label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 18px 0 12px;
+  font-size: 12px;
+}
+.google-connection-advanced input {
+  width: 100%;
+}
+.google-connection-advanced p {
+  margin-top: 16px;
+}
+.session-actions {
+  margin: 12px 0;
+}
+.import-modal .scan-upload {
+  grid-column: 1 / -1;
+  padding: 15px;
+}
+.scan-upload input[type="file"] {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  background: var(--card);
+}
+.modal > .card-heading > button {
+  min-width: 42px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  padding: 4px;
+}
+@media (max-width: 600px) {
+  .modal .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modal .field input,
+  .modal .field select {
+    font-size: 14px;
+    min-height: 46px;
+  }
+  .modal .field {
+    font-size: 12px;
+  }
+  .transaction-feed {
+    width: 100%;
+  }
+  .card:has(> .transaction-toolbar) > .card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card:has(> .transaction-toolbar) > .card-heading > .row-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 7px;
+  }
+  .card:has(> .transaction-toolbar) > .card-heading h2 {
+    font-size: 16px;
+  }
+  .settings {
+    padding: 20px;
+  }
+  .scanner-settings .primary {
+    width: 100%;
+  }
+  .scan-intro {
+    padding: 14px;
+  }
+  .import-modal .pill-switch {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .import-modal .pill-switch button {
+    text-align: left;
+    justify-content: flex-start;
+    min-height: 42px;
+  }
+}
+
+.credit-statement-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  padding: 10px 0;
+  cursor: pointer;
+}
+.credit-statement-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
+}

@@ -514,7 +514,7 @@ export default function StatementImport({
                       setError("");
                     }}
                   >
-                    CSV statement
+                    Upload CSV
                   </button>
                   <button
                     type="button"
@@ -522,26 +522,14 @@ export default function StatementImport({
                     disabled={busy}
                     onClick={() => {
                       setMode("scan");
-                      setPreview([]);
-                      setError("");
-                    }}
-                  >
-                    Scan bills & statements
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={mode === "scan" && scanKind === "CreditCard"}
-                    disabled={busy}
-                    onClick={() => {
-                      setMode("scan");
-                      setScanKind("CreditCard");
+                      setScanKind("Auto");
                       setCard("");
-                      setPreview([]);
                       setDetected([]);
+                      setPreview([]);
                       setError("");
                     }}
                   >
-                    Upload credit card statement
+                    Upload using AI
                   </button>
                 </div>
                 <fieldset className="form-grid" disabled={busy || disabled}>
@@ -555,6 +543,17 @@ export default function StatementImport({
                           accept=".csv,text/csv"
                           onChange={(e) => void read(e.target.files?.[0])}
                         />
+                        <small>
+                          <a
+                            href="./sample-transactions.csv"
+                            download="budget-tracker-sample.csv"
+                          >
+                            Download sample CSV ↗
+                          </a>
+                          <br />
+                          Example data · DD/MM/YYYY dates. Use either Debit or
+                          Credit per row, then choose tags in preview.
+                        </small>
                       </label>
                     </>
                   ) : (
@@ -619,29 +618,21 @@ export default function StatementImport({
                     </label>
                   ) : (
                     <>
-                      <label className="field">
-                        Statement kind
-                        <select
-                          aria-label="Statement kind"
-                          value={scanKind}
+                      <label className="credit-statement-toggle">
+                        <input
+                          type="checkbox"
+                          aria-label="Credit card statement"
+                          checked={scanKind === "CreditCard"}
                           onChange={(event) => {
                             setScanKind(
-                              event.target.value as ScanHints["statementKind"],
+                              event.target.checked ? "CreditCard" : "Auto",
                             );
                             setCard("");
                             setPreview([]);
                             setDetected([]);
                           }}
-                        >
-                          <option value="Auto">
-                            Auto · detect from image or PDF
-                          </option>
-                          <option value="Bank">Bank statement</option>
-                          <option value="CreditCard">
-                            Credit card statement
-                          </option>
-                          <option value="Receipt">Bill / receipt</option>
-                        </select>
+                        />
+                        <span>Credit card statement</span>
                       </label>
                       {(scanKind === "CreditCard" ||
                         detected.some(
@@ -659,7 +650,7 @@ export default function StatementImport({
                             }}
                           >
                             <option value="">
-                              Detect card if possible · review in preview
+                              Auto · identify from uploaded file
                             </option>
                             {(target?.creditCards || []).map((item: any) => (
                               <option value={item.id} key={item.id}>
@@ -1287,11 +1278,13 @@ export default function StatementImport({
                     : `Import ${selected.length} selected transactions`}
                 </button>
               </div>
-              <p className="credit-help">
-                CSV only, up to 500 rows. Review duplicates, tags and transfers
-                before importing. Use the card-bill and loan-payment screens for
-                payments that need charge or principal/interest links.
-              </p>
+              {mode === "csv" && (
+                <p className="credit-help">
+                  CSV imports support up to 500 rows. Review duplicates, tags
+                  and transfers before importing. Linked payments belong in the
+                  card-bill or loan-payment screens.
+                </p>
+              )}
             </section>
           </div>,
           document.body,

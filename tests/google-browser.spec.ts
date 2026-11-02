@@ -2342,7 +2342,7 @@ test("AI bill scans require review confirmation before any Sheet update", async 
     exact: true,
   });
   await dialog
-    .getByRole("button", { name: "Scan bills & statements", exact: true })
+    .getByRole("button", { name: "Upload using AI", exact: true })
     .click();
   await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
     name: "bill.pdf",
@@ -2468,7 +2468,7 @@ test("a scanner without an API key shows setup guidance and never analyzes or wr
     exact: true,
   });
   await dialog
-    .getByRole("button", { name: "Scan bills & statements", exact: true })
+    .getByRole("button", { name: "Upload using AI", exact: true })
     .click();
   await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
     name: "bill.pdf",
@@ -2532,7 +2532,7 @@ test("configured scanner stays ready after reload without asking for the key aga
       exact: true,
     });
     await dialog
-      .getByRole("button", { name: "Scan bills & statements", exact: true })
+      .getByRole("button", { name: "Upload using AI", exact: true })
       .click();
     await expect(dialog.locator("[role=status]")).toContainText(
       "Configured · API key saved securely on the server",
@@ -2791,8 +2791,8 @@ test("AI scan infers credit card kind and date format, keeps explanation collaps
     exact: true,
   });
   await expect(
-    dialog.getByLabel("Statement kind", { exact: true }),
-  ).toHaveValue("Auto");
+    dialog.getByLabel("Credit card statement", { exact: true }),
+  ).not.toBeChecked();
   await expect(
     dialog.getByLabel("Import date format", { exact: true }),
   ).toHaveValue("Auto");
@@ -2818,9 +2818,7 @@ test("AI scan infers credit card kind and date format, keeps explanation collaps
     dialog.getByLabel("Import row 1", { exact: true }),
   ).toBeChecked();
   expect(hints[0]).toMatchObject({ statementKind: "Auto", dateFormat: "Auto" });
-  await dialog
-    .getByRole("button", { name: "Upload credit card statement", exact: true })
-    .click();
+  await dialog.getByLabel("Credit card statement", { exact: true }).check();
   await dialog
     .getByLabel("Import date format", { exact: true })
     .selectOption("MDY");
@@ -2879,4 +2877,34 @@ test("Settings always shows release version and permanently deleted transactions
     .getByRole("button", { name: "Recently deleted", exact: true })
     .click();
   await expect(page.locator(".transaction-item")).toHaveCount(0);
+});
+
+test("Upload CSV offers a downloadable example with compatible headers", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await expect(
+    dialog.getByRole("button", { name: "Upload CSV", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Upload using AI", exact: true }),
+  ).toBeVisible();
+  const sample = dialog.getByRole("link", { name: /Download sample CSV/ });
+  await expect(sample).toHaveAttribute("download", "budget-tracker-sample.csv");
+  const url = await sample.getAttribute("href");
+  const response = await page.request.get(new URL(url!, page.url()).toString());
+  expect(response.ok()).toBe(true);
+  expect(await response.text()).toContain("Date,Description,Debit,Credit");
 });
