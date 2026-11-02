@@ -22,7 +22,11 @@ export function paymentFor(
       row.paidTransactionIds.includes(id),
   );
 }
-export function unpaidCredit(rows: RecordData[], account?: string) {
+export function unpaidCredit(
+  rows: RecordData[],
+  account?: string,
+  includeUnknown = false,
+) {
   const paid = new Set(
     rows
       .filter((row) => row.status === "Active" && isCreditPayment(row))
@@ -34,7 +38,7 @@ export function unpaidCredit(rows: RecordData[], account?: string) {
     (row) =>
       row.status === "Active" &&
       isCredit(row) &&
-      row.settlementStatus !== "Unknown" &&
+      (includeUnknown || row.settlementStatus !== "Unknown") &&
       (!account || row.account === account) &&
       !paid.has(row.id),
   );
@@ -74,6 +78,16 @@ export function validateCreditPayment(row: RecordData, rows: RecordData[]) {
       "A selected credit card transaction changed or was already paid. Refresh and review the unpaid list.",
     );
   if (
+    charges.some(
+      (charge) =>
+        charge?.settlementStatus === "Unknown" &&
+        !row.confirmedUnpaidTransactionIds?.includes(charge.id),
+    )
+  )
+    throw Error(
+      "Confirm that selected statement transactions with unknown settlement are unpaid.",
+    );
+  if (
     Math.round(Number(row.amount) * 100) !==
     Math.round(creditTotal(charges as RecordData[]) * 100)
   )
@@ -101,6 +115,8 @@ export function transactionDetails(row: RecordData) {
     principalPaid: row.loanPayment === true ? Number(row.principalPaid) : 0,
     interestPaid: row.loanPayment === true ? Number(row.interestPaid) : 0,
     creditPayment: row.creditPayment === true,
+    confirmedUnpaidTransactionIds:
+      row.creditPayment === true ? row.confirmedUnpaidTransactionIds || [] : [],
     paidTransactionIds:
       row.creditPayment === true ? row.paidTransactionIds || [] : [],
   };

@@ -35,6 +35,7 @@ export default function CreditBills({
     record: any;
     operationId: string;
   } | null>(null);
+  const [confirmedUnpaid, setConfirmedUnpaid] = useState(false);
   const [failure, setFailure] = useState("");
   useDialogScrollLock(paying);
   useEffect(() => {
@@ -43,11 +44,19 @@ export default function CreditBills({
       setExcluded([]);
     }
   }, [destinations, destination]);
-  const charges = unpaidCredit(rows, destination).filter(
+  const charges = unpaidCredit(rows, destination, true).filter(
     (row) =>
       row.account === destination && (!cardId || row.creditCardId === cardId),
   );
   const selected = charges.filter((row) => !excluded.includes(row.id));
+  const unknownSelected = selected.filter(
+    (row) => row.settlementStatus === "Unknown",
+  );
+  const needsConfirmation = unknownSelected.length > 0 && !confirmedUnpaid;
+  useEffect(
+    () => setConfirmedUnpaid(false),
+    [destination, cardId, excluded, rows],
+  );
   const amount = pending?.record.amount ?? creditTotal(selected);
   const sources = accounts.filter((account) => account.id !== destination);
   const options = (items: RecordData[]) =>
@@ -72,7 +81,7 @@ export default function CreditBills({
   }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || (!pending && needsConfirmation)) return;
     const request = pending || {
       operationId: crypto.randomUUID(),
       record: {
@@ -83,6 +92,7 @@ export default function CreditBills({
         type: "Transfer",
         creditPayment: true,
         paidTransactionIds: selected.map((row) => row.id),
+        confirmedUnpaidTransactionIds: unknownSelected.map((row) => row.id),
         description: `Credit card bill payment · ${accounts.find((account) => account.id === destination)?.name || "account"}`,
         payment: "Bank Transfer",
         expenseMode: "Debit",
@@ -119,7 +129,7 @@ export default function CreditBills({
             )
           }
         />
-        Select all unpaid transactions
+        Select all listed transactions
       </label>
       {charges.map((row) => (
         <label className="credit-charge" key={row.id}>
@@ -138,6 +148,9 @@ export default function CreditBills({
           <span>
             <b>{row.description}</b>
             <small>
+              {row.settlementStatus === "Unknown"
+                ? "Confirm unpaid · "
+                : "Unpaid · "}
               {row.date} ·{" "}
               {row.creditCardName || row.tag || "Credit card expense"}
             </small>
@@ -146,14 +159,16 @@ export default function CreditBills({
         </label>
       ))}
       {!charges.length && (
-        <p className="empty">No unpaid credit transactions for this account.</p>
+        <p className="empty">
+          No outstanding credit card transactions recorded for this account.
+        </p>
       )}
     </div>
   );
   const summary = (
     <div className="credit-summary">
       <div>
-        <small>Total unpaid · {charges.length} transactions</small>
+        <small>Listed charges · {charges.length} transactions</small>
         <strong>{money(creditTotal(charges))}</strong>
       </div>
       <div>
@@ -166,7 +181,7 @@ export default function CreditBills({
     <section className="card credit-bills">
       <div className="card-heading">
         <div>
-          <h2>Unpaid credit card expenses</h2>
+          <h2>Credit card charges to pay</h2>
           <p>
             Select the charges you want to pay. Paid charges leave this list
             after Google Sheets confirms the payment.
@@ -206,8 +221,9 @@ export default function CreditBills({
               </small>
               <p>
                 Partial statement: historical purchase settlement is unknown.
-                These purchases are excluded from the selectable unpaid list; no
-                missing transactions were invented.
+                Review the listed purchases and confirm which are still unpaid
+                before paying. The reported balance may include transactions
+                outside these pages.
               </p>
             </div>
           ))}
@@ -238,10 +254,26 @@ export default function CreditBills({
           <>
             {summary}
             {list}
+            {unknownSelected.length > 0 && (
+              <label className="credit-select-all">
+                <input
+                  type="checkbox"
+                  checked={confirmedUnpaid}
+                  disabled={disabled}
+                  onChange={(event) => setConfirmedUnpaid(event.target.checked)}
+                />
+                I confirm the selected statement charges are still unpaid
+              </label>
+            )}
             <div className="credit-pay-action">
               <button
                 className="primary"
-                disabled={disabled || !selected.length || !sources.length}
+                disabled={
+                  disabled ||
+                  needsConfirmation ||
+                  !selected.length ||
+                  !sources.length
+                }
                 onClick={() => {
                   setSource(sources[0]?.id || "");
                   setPending(null);
@@ -336,7 +368,9 @@ export default function CreditBills({
                 <button
                   className="primary"
                   disabled={
-                    saving || (!pending && (disabled || !selected.length))
+                    saving ||
+                    (!pending &&
+                      (disabled || needsConfirmation || !selected.length))
                   }
                 >
                   {saving

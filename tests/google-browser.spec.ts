@@ -1343,7 +1343,7 @@ test("credit bills select all unpaid charges, settle a subset cross-account, sur
     .click();
   await expect(page.locator(".credit-charge")).toHaveCount(3);
   await expect(
-    page.getByLabel("Select all unpaid transactions", { exact: true }),
+    page.getByLabel("Select all listed transactions", { exact: true }),
   ).toBeChecked();
   await expect(page.locator(".credit-summary")).toContainText("₹600");
   await page
@@ -1518,7 +1518,7 @@ test("loan tracker saves opening paid amounts, splits repayments, reduces princi
   });
 });
 
-test("partial card snapshots remain separate from unknown historical settlements", async ({
+test("unknown statement charges can be reviewed and explicitly confirmed unpaid", async ({
   page,
 }) => {
   const { f } = await mockGoogle(page);
@@ -1545,6 +1545,9 @@ test("partial card snapshots remain separate from unknown historical settlements
   });
   await login(page);
   await expect(
+    page.getByRole("button", { name: /Credit card charges to review/ }),
+  ).toContainText("₹250");
+  await expect(
     page
       .locator(".credit-outstanding")
       .filter({ hasText: "Reported card outstanding" }),
@@ -1557,10 +1560,28 @@ test("partial card snapshots remain separate from unknown historical settlements
   await expect(page.locator(".statement-snapshot")).toContainText(
     "settlement is unknown",
   );
-  await expect(page.locator(".credit-charge")).toHaveCount(0);
+  await expect(page.locator(".credit-charge")).toHaveCount(1);
+  await expect(page.locator(".credit-charge")).toContainText("Confirm unpaid");
   await expect(
     page.getByRole("button", { name: /Pay selected/ }),
   ).toBeDisabled();
+  await page
+    .getByRole("checkbox", {
+      name: "I confirm the selected statement charges are still unpaid",
+    })
+    .check();
+  await expect(
+    page.getByRole("button", { name: /Pay selected/ }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: /Pay selected/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Pay credit card bill" }),
+  ).toContainText("₹250");
+  await page.getByRole("button", { name: /and mark selected paid/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Pay credit card bill" }),
+  ).toHaveCount(0);
+  await expect(page.locator(".credit-charge")).toHaveCount(0);
 });
 
 test("account balances appear across screens and distinguish confirmed bank balances from unreconciled ledger totals", async ({

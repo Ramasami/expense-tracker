@@ -237,3 +237,32 @@ test("partial statement history does not invent unpaid status or turn card refun
     750,
   );
 });
+
+test("unknown imported charges require explicit unpaid confirmation before settlement", () => {
+  const { state, first } = owed();
+  state.data.transactions.find((row) => row.id === first.id)!.settlementStatus =
+    "Unknown";
+  assert.equal(unpaidCredit(state.data.transactions).length, 1);
+  assert.equal(
+    unpaidCredit(state.data.transactions, "card-account", true).length,
+    2,
+  );
+  const request = {
+    ...payment([first.id], 100),
+    id: "payment",
+    version: 1,
+    status: "Active",
+  };
+  assert.throws(
+    () => validateCreditPayment(request, state.data.transactions),
+    /Confirm/,
+  );
+  const paid = applyOperation(
+    state,
+    op({ ...request, confirmedUnpaidTransactionIds: [first.id] }),
+  );
+  assert.equal(
+    unpaidCredit(paid.state.data.transactions, "card-account", true).length,
+    1,
+  );
+});

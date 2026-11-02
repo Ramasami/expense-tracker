@@ -577,7 +577,11 @@ export default function Home() {
       );
     }, 0);
 
-  const outstandingCredit = unpaidCredit(data.transactions).filter(
+  const outstandingCredit = unpaidCredit(
+    data.transactions,
+    undefined,
+    true,
+  ).filter(
     (row) =>
       belongsToOwner(row, person, data.accounts, allOwners(data.settings)) &&
       matchesAccount(row),
@@ -2017,8 +2021,12 @@ export default function Home() {
                     onClick={() => navigate("Credit Card Bills")}
                   >
                     <span>
-                      Unpaid credit card · {outstandingCredit.length}{" "}
-                      transactions
+                      {outstandingCredit.some(
+                        (row) => row.settlementStatus === "Unknown",
+                      )
+                        ? "Credit card charges to review"
+                        : "Unpaid credit card"}{" "}
+                      · {outstandingCredit.length} transactions
                     </span>
                     <strong>{money(creditTotal(outstandingCredit))}</strong>
                     <span>Review & pay bills →</span>
