@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { RecordData, money } from "../lib/finance";
+import LoanForecast from "./loan-forecast";
 import { loanSummary } from "../lib/loans";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
   error: string;
   onSave: (record: any, op: string) => Promise<boolean>;
   onPay: (record: any, op: string) => Promise<boolean>;
+  onDelete: (record: RecordData) => void;
 };
 export default function LoanTracker({
   loans,
@@ -22,6 +24,7 @@ export default function LoanTracker({
   error,
   onSave,
   onPay,
+  onDelete,
 }: Props) {
   const [modal, setModal] = useState<{
     kind: "loan" | "payment";
@@ -90,6 +93,7 @@ export default function LoanTracker({
           "interestRate",
           "openingPrincipalPaid",
           "openingInterestPaid",
+          "scheduledEmi",
         ])
           record[key] = Number(record[key] || 0);
         record.kind = "loan";
@@ -168,13 +172,16 @@ export default function LoanTracker({
                 · {Number(loan.interestRate)}% annual interest
               </p>
               {loan.allocationInferred && (
-                <p className="statement-note">
-                  Payment allocation inferred using interest-first repayment.
-                  Interest-paid totals cover the supplied history only (from
-                  November 2025); earlier interest is unknown. The earliest
-                  split and switch-fee allocation are assumptions; original
-                  lender entries are retained below.
-                </p>
+                <details className="statement-note">
+                  <summary>Payment allocation assumptions</summary>
+                  <p>
+                    Payment allocation inferred using interest-first repayment.
+                    Interest-paid totals cover the supplied history only (from
+                    November 2025); earlier interest is unknown. The earliest
+                    split and switch-fee allocation are assumptions; original
+                    lender entries are retained below.
+                  </p>
+                </details>
               )}
               <span className="stat-label">
                 Remaining principal
@@ -205,9 +212,11 @@ export default function LoanTracker({
                 </div>
               </dl>
               {loan.statementSnapshot && (
-                <div className="statement-snapshot">
-                  <b>Lender reported outstanding</b>
-                  <strong>{money(loan.statementSnapshot.outstanding)}</strong>
+                <details className="statement-snapshot">
+                  <summary>
+                    Lender statement ·{" "}
+                    {money(loan.statementSnapshot.outstanding)}
+                  </summary>
                   <small>
                     As of {loan.statementSnapshot.asOf}; includes{" "}
                     {money(loan.statementSnapshot.accruedInterest)} interest
@@ -243,11 +252,15 @@ export default function LoanTracker({
                       )}
                     </div>
                   </details>
-                </div>
+                </details>
               )}
+              <LoanForecast loan={loan} rows={rows} />
               <div className="row-actions">
                 <button disabled={disabled} onClick={() => openLoan(loan)}>
                   Edit loan
+                </button>
+                <button disabled={disabled} onClick={() => onDelete(loan)}>
+                  Delete loan
                 </button>
                 <button
                   className="primary"
@@ -335,6 +348,11 @@ export default function LoanTracker({
                       step: "0.001",
                       required: true,
                     })}
+                    {field("Scheduled monthly payment (₹)", "scheduledEmi", {
+                      type: "number",
+                      min: "0",
+                      step: "0.01",
+                    })}
                     {field(
                       "Principal paid before tracking (₹)",
                       "openingPrincipalPaid",
@@ -419,7 +437,7 @@ export default function LoanTracker({
                 <p className="credit-help">
                   Already-paid amounts are opening totals only; they do not
                   create new cash transactions. Add new repayments using Pay
-                  loan. The annual rate is recorded for reference.
+                  loan. Forecasts use the annual rate and scheduled payment.
                 </p>
               )}
               {failed && (

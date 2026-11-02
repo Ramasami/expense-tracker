@@ -273,3 +273,70 @@ test("credit card details and loan repayments persist in Sheet transaction metad
     const details = JSON.parse(f.grids["Expense Ledger"].at(-1)![23]);
     assert.equal(details.loanId, loan.record.id);
   }));
+
+test("reconciliation comparisons are confirmed in Sheets without adjusting cash", () =>
+  signed(async (f) => {
+    const result = await saveGoogle({
+      entity: "settings",
+      action: "create",
+      record: {
+        name: "Reconcile bank",
+        kind: "reconciliation",
+        accountId: "ram-bank",
+        asOf: "2026-11-02",
+        statementBalance: -250,
+        ledgerBalance: -250,
+        difference: 0,
+      },
+      operationId: "reconcile-test",
+    });
+    assert.equal(result.record.difference, 0);
+    assert.equal(f.grids["Expense Ledger"].length, 2);
+    await assert.rejects(
+      saveGoogle({
+        entity: "settings",
+        action: "create",
+        record: {
+          name: "Stale comparison",
+          kind: "reconciliation",
+          accountId: "ram-bank",
+          asOf: "2026-11-02",
+          statementBalance: -250,
+          ledgerBalance: 0,
+          difference: -250,
+        },
+        operationId: "reconcile-stale",
+      }),
+      /ledger changed/,
+    );
+  }));
+test("fresh Sheet data blocks duplicate statement imports unless explicitly reviewed", () =>
+  signed(async (f) => {
+    const record = {
+      ...tx,
+      description: "Original",
+      amount: 250,
+      statementImport: true,
+      sourceStatementId: "csv-row-one",
+    };
+    await assert.rejects(
+      saveGoogle({
+        entity: "transactions",
+        action: "create",
+        record,
+        operationId: "duplicate-test",
+      }),
+      /matching statement transaction/,
+    );
+    const saved = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: { ...record, importDuplicateConfirmed: true },
+      operationId: "duplicate-confirmed",
+    });
+    assert.equal(saved.record.importDuplicateConfirmed, true);
+    assert.equal(
+      f.grids["Expense Ledger"].filter((row) => row[1] === "Original").length,
+      2,
+    );
+  }));

@@ -104,7 +104,7 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
   );
   await expect(page.locator(".offline-banner")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Add transaction", exact: true }),
+    page.getByRole("button", { name: "Add account", exact: true }),
   ).toBeDisabled();
   state.failWrites = false;
   await page.reload();
@@ -1265,6 +1265,13 @@ test("Accounts config supports multiple credit cards and credit purchases use it
   await dialog
     .getByLabel("Credit card 2 name", { exact: true })
     .fill("HDFC RuPay");
+  await dialog.getByText("Billing cycle", { exact: true }).first().click();
+  await dialog
+    .getByLabel("Credit card 1 statement day", { exact: true })
+    .fill("20");
+  await dialog
+    .getByLabel("Credit card 1 payment due day", { exact: true })
+    .fill("5");
   await dialog
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
@@ -1274,6 +1281,12 @@ test("Accounts config supports multiple credit cards and credit purchases use it
     "HDFC Visa",
     "HDFC RuPay",
   ]);
+  expect(saved.creditCards[0].statementDay).toBe(20);
+  expect(saved.creditCards[0].dueDay).toBe(5);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
   await page
     .getByRole("button", { name: "Add transaction", exact: true })
     .click();
@@ -1672,4 +1685,441 @@ test("balances follow Sheet changes after sync and do not deduct historical with
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("billing cycles and partial payments retain unpaid remainders after refresh", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const bank = JSON.parse(f.grids.Accounts[1][7]);
+  bank.openingBalance = 1000;
+  bank.creditCards = [
+    { id: "visa", name: "Visa", statementDay: 20, dueDay: 5 },
+  ];
+  f.grids.Accounts[1][7] = JSON.stringify(bank);
+  f.grids["Expense Ledger"][1][23] = JSON.stringify({
+    expenseMode: "Credit",
+    creditCardId: "visa",
+    creditCardName: "Visa",
+  });
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: /Unbilled ₹250/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Pay selected/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("From account", { exact: true })
+    .selectOption("ram-bank");
+  await dialog.getByLabel("Credit payment amount", { exact: true }).fill("100");
+  await dialog.getByRole("button", { name: /Record partial payment/ }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".credit-charge")).toContainText("₹150");
+  await expect(page.locator(".credit-charge")).toContainText("Part paid");
+  await page.getByRole("button", { name: "Refresh data", exact: true }).click();
+  await expect(page.locator(".credit-charge")).toContainText("₹150");
+  const payment = f.grids["Expense Ledger"].find((row) =>
+    String(row[1]).includes("Credit card bill payment"),
+  );
+  expect(JSON.parse(payment![23]).creditAllocations).toEqual({
+    "sheet-tx-2": 100,
+  });
+  await page
+    .getByLabel("Credit card filter", { exact: true })
+    .selectOption("visa");
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Varsha", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Credit card filter", { exact: true }),
+  ).toHaveValue("");
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Ram", exact: true })
+    .click();
+  await expect(page.locator(".credit-charge")).toContainText("₹150");
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "All", exact: true })
+    .click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "work/enhancements-card-mobile.png",
+    animations: "disabled",
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("bank reconciliation saves comparisons without changing the account or transactions", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const bank = JSON.parse(f.grids.Accounts[1][7]);
+  bank.openingBalance = 1000;
+  f.grids.Accounts[1][7] = JSON.stringify(bank);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  const panel = page.locator("details").filter({
+    has: page.locator("summary", { hasText: "Reconcile bank statement" }),
+  });
+  await panel.locator("summary").first().click();
+  await page.getByLabel("Statement date", { exact: true }).fill("2026-11-02");
+  await page
+    .getByLabel("Statement closing balance", { exact: true })
+    .fill("750");
+  await expect(panel).toContainText("Matched");
+  await panel
+    .getByRole("button", { name: "Save reconciliation", exact: true })
+    .click();
+  await expect(panel.getByRole("status")).toContainText(
+    "saved to Google Sheets",
+  );
+  expect(
+    f.grids["App Settings"].some((r) =>
+      String(r[7]).includes('"kind":"reconciliation"'),
+    ),
+  ).toBe(true);
+  expect(JSON.parse(f.grids.Accounts[1][7]).openingBalance).toBe(1000);
+  expect(f.grids["Expense Ledger"].filter((r) => r[4] === 250)).toHaveLength(1);
+  await page
+    .getByLabel("Statement closing balance", { exact: true })
+    .fill("700");
+  await expect(panel).toContainText("-₹50");
+});
+
+test("CSV import previews duplicates and imports selected corrected rows only once", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await dialog.getByLabel("Statement CSV", { exact: true }).setInputFiles({
+    name: "bank.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      'Date,Description,Amount\n01/11/2026,Original,250\n02/11/2026,"New, purchase",123.45',
+    ),
+  });
+  await dialog
+    .getByRole("button", { name: "Build preview", exact: true })
+    .click();
+  await expect(
+    dialog.getByLabel("Import row 1", { exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    dialog.getByLabel("Import row 2", { exact: true }),
+  ).toBeChecked();
+  await dialog.getByLabel("Row 2 amount", { exact: true }).fill("120");
+  await dialog
+    .getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    })
+    .click();
+  await expect(dialog).toContainText("1 saved");
+  await expect(
+    dialog.getByLabel("Import row 2", { exact: true }),
+  ).toBeDisabled();
+  expect(
+    f.grids["Expense Ledger"].filter((r) => r[1] === "New, purchase"),
+  ).toHaveLength(1);
+  expect(
+    f.grids["Expense Ledger"].find((r) => r[1] === "New, purchase")?.[4],
+  ).toBe(120);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/enhancements-import-mobile.png",
+    animations: "disabled",
+    fullPage: true,
+  });
+});
+
+test("monthly budgets persist, reset each month, and restore from the recovery panel", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Budgets", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add budget", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "Add budget", exact: true });
+  await dialog.getByLabel("Budget name", { exact: true }).fill("Food limit");
+  await dialog.getByLabel("Monthly limit (₹)", { exact: true }).fill("1000");
+  await dialog
+    .getByRole("checkbox", { name: "Repeat every month", exact: true })
+    .check();
+  await dialog
+    .getByRole("button", { name: "Save budget", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".monthly-budgets .entity-card")).toContainText(
+    "₹250",
+  );
+  await page.getByLabel("Budget month", { exact: true }).fill("2026-12");
+  await expect(page.locator(".monthly-budgets .entity-card")).toContainText(
+    "₹1,000 left",
+  );
+  page.once("dialog", (d) => d.accept());
+  await page
+    .getByRole("button", { name: "Delete budget", exact: true })
+    .click();
+  await expect(page.locator(".monthly-budgets .entity-card")).toHaveCount(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  const recovery = page.locator("details").filter({
+    has: page.locator("summary", { hasText: "Recently deleted & archived" }),
+  });
+  await recovery.locator("summary").first().click();
+  await page
+    .getByLabel("Recovery category", { exact: true })
+    .selectOption("budgets");
+  await expect(recovery).toContainText("Food limit");
+  await recovery.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(recovery.getByRole("status")).toContainText("Restored");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Budgets", exact: true })
+    .click();
+  await expect(page.locator(".monthly-budgets .entity-card")).toContainText(
+    "Food limit",
+  );
+  expect(f.grids.Budgets.filter((r) => r[1] === "Active")).toHaveLength(1);
+  await page.screenshot({
+    path: "work/enhancements-budgets-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/enhancements-budgets-mobile.png",
+    animations: "disabled",
+    fullPage: true,
+  });
+});
+
+test("loan forecasts compare extra payments without writing forecast values as real transactions", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  f.grids["App Settings"].push([
+    "forecast-loan",
+    "Active",
+    1,
+    "",
+    "",
+    "",
+    "",
+    JSON.stringify({
+      id: "forecast-loan",
+      name: "Forecast loan",
+      kind: "loan",
+      accountId: "ram-bank",
+      principal: 100000,
+      interestRate: 8,
+      scheduledEmi: 3000,
+      status: "Active",
+      version: 1,
+    }),
+  ]);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Loan Tracker", exact: true })
+    .click();
+  await page.getByText("Payoff forecast", { exact: true }).click();
+  const forecast = page.locator(".loan-card .feature-details");
+  await expect(forecast).toContainText("Estimated payoff");
+  const before = await forecast.locator(".mini-stats").innerText();
+  await forecast
+    .getByLabel("Extra per month (₹)", { exact: true })
+    .fill("1000");
+  await expect(forecast.locator(".mini-stats")).not.toHaveText(before);
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+  await page.getByRole("button", { name: "Edit loan", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit loan", exact: true });
+  await dialog
+    .getByLabel("Scheduled monthly payment (₹)", { exact: true })
+    .fill("3500");
+  await dialog
+    .getByLabel("Annual interest rate (%)", { exact: true })
+    .fill("9");
+  await dialog.getByRole("button", { name: "Save loan", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    forecast.getByLabel("Monthly payment (₹)", { exact: true }),
+  ).toHaveValue("3500");
+  await expect(
+    forecast.getByLabel("Forecast annual rate (%)", { exact: true }),
+  ).toHaveValue("9");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/enhancements-loan-mobile.png",
+    animations: "disabled",
+    fullPage: true,
+  });
+});
+
+test("an unconfirmed CSV import can sync and retry the same row without duplication", async ({
+  page,
+}) => {
+  const { f, state } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await dialog.getByLabel("Statement CSV", { exact: true }).setInputFiles({
+    name: "retry.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("Date,Description,Amount\n02/11/2026,Retry import,25"),
+  });
+  await dialog
+    .getByRole("button", { name: "Build preview", exact: true })
+    .click();
+  state.dropWriteResponse = true;
+  await dialog
+    .getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("Import paused");
+  await expect(
+    dialog.getByLabel("Row 1 amount", { exact: true }),
+  ).toBeDisabled();
+  await dialog
+    .getByRole("button", { name: "Sync with Google Sheets", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await dialog
+    .getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    })
+    .click();
+  await expect(dialog).toContainText("1 saved");
+  expect(
+    f.grids["Expense Ledger"].filter((r) => r[1] === "Retry import"),
+  ).toHaveLength(1);
+});
+
+test("long CSV previews paginate without losing selection and import explicit transfers", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  const csv =
+    "Date,Description,Amount\n" +
+    Array.from(
+      { length: 26 },
+      (_, i) => `02/11/2026,Transfer preview ${i + 1},500`,
+    ).join("\n");
+  await dialog.getByLabel("Statement CSV", { exact: true }).setInputFiles({
+    name: "long.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await dialog
+    .getByRole("button", { name: "Build preview", exact: true })
+    .click();
+  await expect(dialog.locator(".import-row")).toHaveCount(25);
+  await dialog
+    .getByRole("checkbox", {
+      name: "Select valid, non-duplicate rows",
+      exact: true,
+    })
+    .uncheck();
+  await dialog.getByLabel("Import row 1", { exact: true }).check();
+  await dialog
+    .getByLabel("Row 1 type", { exact: true })
+    .selectOption("Transfer");
+  await dialog
+    .getByLabel("Row 1 to account", { exact: true })
+    .selectOption("varsha-bank");
+  await dialog
+    .getByRole("button", { name: "Next preview rows", exact: true })
+    .click();
+  await expect(dialog.locator(".import-row")).toHaveCount(1);
+  await expect(
+    dialog.getByLabel("Import row 26", { exact: true }),
+  ).not.toBeChecked();
+  await dialog
+    .getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    })
+    .click();
+  await expect(dialog).toContainText("1 saved");
+  const added = f.grids["Expense Ledger"].filter((r) =>
+    String(r[1]).startsWith("Transfer preview"),
+  );
+  expect(added).toHaveLength(1);
+  expect(added[0][18]).toBe("ram-bank");
+  expect(added[0][19]).toBe("varsha-bank");
+  expect(added[0][21]).toBe("Transfer");
 });

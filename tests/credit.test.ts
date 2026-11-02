@@ -266,3 +266,76 @@ test("unknown imported charges require explicit unpaid confirmation before settl
     1,
   );
 });
+
+test("partial payments preserve outstanding remainders and restore without overpaying", () => {
+  const { state, first, second } = owed();
+  const partial = applyOperation(
+    state,
+    op({ ...payment([first.id], 40), creditAllocations: { [first.id]: 40 } }),
+  );
+  assert.equal(
+    unpaidCredit(partial.state.data.transactions).find(
+      (row) => row.id === first.id,
+    )?.amount,
+    60,
+  );
+  assert.equal(creditTotal(unpaidCredit(partial.state.data.transactions)), 310);
+  const rest = applyOperation(
+    partial.state,
+    op({ ...payment([first.id], 60), creditAllocations: { [first.id]: 60 } }),
+  );
+  assert.equal(unpaidCredit(rest.state.data.transactions).length, 1);
+  assert.throws(
+    () =>
+      applyOperation(
+        rest.state,
+        op({ ...payment([first.id], 1), creditAllocations: { [first.id]: 1 } }),
+      ),
+    /already paid/,
+  );
+  const reversed = applyOperation(rest.state, op(rest.result.record, "delete"));
+  assert.equal(
+    unpaidCredit(reversed.state.data.transactions).find(
+      (row) => row.id === first.id,
+    )?.amount,
+    60,
+  );
+  const restored = applyOperation(
+    reversed.state,
+    op(reversed.result.record, "restore"),
+  );
+  assert.deepEqual(
+    unpaidCredit(restored.state.data.transactions).map((row) => row.id),
+    [second.id],
+  );
+});
+
+test("imported statement bill payments without linked charge IDs remain recoverable", () => {
+  const state = sample();
+  const created = applyOperation(
+    state,
+    op({
+      date: "2026-11-02",
+      description: "Imported card payment",
+      account: "payer",
+      type: "Expense",
+      expenseMode: "Debit",
+      statementCardPayment: true,
+      amount: 100,
+      tagId: "default-tag-0",
+    }),
+  );
+  const deleted = applyOperation(
+    created.state,
+    op(created.result.record, "delete"),
+  );
+  const restored = applyOperation(
+    deleted.state,
+    op(deleted.result.record, "restore"),
+  );
+  assert.equal(restored.result.record.status, "Active");
+  assert.equal(
+    balance(restored.state.data.accounts[1], restored.state.data.transactions),
+    1900,
+  );
+});

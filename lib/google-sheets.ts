@@ -1,3 +1,5 @@
+import { reconcile } from "./planning";
+import { duplicateKey } from "./statement-import";
 import { validateLoan, validateLoanPayment } from "./loans";
 import { transactionDetails, validateCreditPayment } from "./credit";
 import { googleToken, currentGoogleSession } from "./google-auth";
@@ -912,6 +914,43 @@ async function save(operation: CloudOperation): Promise<Record<string, any>> {
   if (result.kind === "loan") validateLoan(result, before.data.transactions);
   if (result.loanPayment === true && result.status === "Active")
     validateLoanPayment(result, before.data.settings, before.data.transactions);
+  if (result.kind === "reconciliation" && result.status === "Active") {
+    const account = before.data.accounts.find(
+      (account) =>
+        account.id === result.accountId && account.status === "Active",
+    );
+    if (!account)
+      throw Error(
+        "The reconciliation account changed. Refresh and start a new comparison.",
+      );
+    const checked = reconcile(
+      account,
+      before.data.transactions,
+      result.asOf,
+      result.statementBalance,
+    );
+    if (
+      checked.ledger !== result.ledgerBalance ||
+      checked.difference !== result.difference
+    )
+      throw Error(
+        "The ledger changed. Start a new comparison before saving reconciliation.",
+      );
+  }
+  if (
+    result.statementImport &&
+    result.status === "Active" &&
+    !result.importDuplicateConfirmed &&
+    before.data.transactions.some(
+      (row) =>
+        row.id !== result.id &&
+        row.status === "Active" &&
+        duplicateKey(row) === duplicateKey(result),
+    )
+  )
+    throw Error(
+      "A matching statement transaction was just added. Refresh and review the import preview.",
+    );
   const requests: any[] = [];
   for (const change of changes) {
     const sheet = sheets.find((s: any) => s.title === tab(change.entity));

@@ -1,6 +1,12 @@
 "use client";
 import { useState } from "react";
-export type CreditCard = { id: string; name: string };
+export type CreditCard = {
+  id: string;
+  name: string;
+  statementDay?: number | string;
+  dueDay?: number | string;
+  [key: string]: any;
+};
 export default function CreditCardEditor({
   value = [],
 }: {
@@ -32,6 +38,47 @@ export default function CreditCardEditor({
               }
             />
           </label>
+          <details className="card-cycle-editor">
+            <summary>Billing cycle</summary>
+            <div className="form-grid">
+              {(
+                [
+                  ["statementDay", "Statement day"],
+                  ["dueDay", "Payment due day"],
+                ] as const
+              ).map(([key, label]) => (
+                <label className="field" key={key}>
+                  {label}
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    step="1"
+                    aria-label={`Credit card ${index + 1} ${label.toLowerCase()}`}
+                    value={card[key] ?? ""}
+                    onChange={(event) =>
+                      setCards(
+                        cards.map((item) =>
+                          item.id === card.id
+                            ? {
+                                ...item,
+                                [key]: event.target.value
+                                  ? Number(event.target.value)
+                                  : "",
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <small>
+              Use the days on your card statement. Short months use their last
+              day.
+            </small>
+          </details>
           <button
             type="button"
             aria-label={`Remove credit card ${index + 1}`}

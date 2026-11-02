@@ -86,6 +86,17 @@ export async function writeSheetCache(
 export function screenCollections(page: string): Collection[] {
   const base: Collection[] = ["transactions", "tags", "accounts", "settings"];
   const extra: Record<string, Collection[]> = {
+    Recovery: [
+      "transactions",
+      "tags",
+      "accounts",
+      "budgets",
+      "goals",
+      "recurring",
+      "holdings",
+      "settings",
+      "audit",
+    ],
     Investments: ["holdings"],
     Budgets: ["budgets"],
     "Financial Goals": ["goals"],

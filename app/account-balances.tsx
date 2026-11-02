@@ -15,8 +15,7 @@ export default function AccountBalances({
       <div className="account-balances-heading">
         <h2>Account balances</h2>
         <small>
-          {stale ? "Cached · sync required" : "Sheet balances"} · independent of
-          report date filters
+          {stale ? "Cached · sync required" : "From Sheet transactions"}
         </small>
       </div>
       <div className="account-balances-grid">
@@ -30,9 +29,7 @@ export default function AccountBalances({
             >
               <h3>{account.name}</h3>
               <strong>{money(ledger)}</strong>
-              <small>
-                Current balance · calculated from Sheet transactions
-              </small>
+              <small>Current balance</small>
             </article>
           );
         })}

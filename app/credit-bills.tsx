@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { RecordData, money } from "../lib/finance";
-import { creditTotal, unpaidCredit } from "../lib/credit";
+import { allocateCredit, creditTotal, unpaidCredit } from "../lib/credit";
+import { billingCycle, todayIST } from "../lib/planning";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 
 type Props = {
@@ -24,6 +25,8 @@ export default function CreditBills({
 }: Props) {
   const [destination, setDestination] = useState("");
   const [cardId, setCardId] = useState("");
+  const [cycleFilter, setCycleFilter] = useState("All");
+  const [paymentAmount, setPaymentAmount] = useState("");
   const [excluded, setExcluded] = useState<string[]>([]);
   const [paying, setPaying] = useState(false);
   const [source, setSource] = useState("");
@@ -42,11 +45,23 @@ export default function CreditBills({
     if (!destinations.some((account) => account.id === destination)) {
       setDestination(destinations[0]?.id || "");
       setExcluded([]);
+      setCardId("");
+      setCycleFilter("All");
+      setPaymentAmount("");
     }
   }, [destinations, destination]);
-  const charges = unpaidCredit(rows, destination, true).filter(
+  const accountCards =
+    accounts.find((account) => account.id === destination)?.creditCards || [];
+  const allCharges = unpaidCredit(rows, destination, true).filter(
+    (row) => !cardId || row.creditCardId === cardId,
+  );
+  const charges = allCharges.filter(
     (row) =>
-      row.account === destination && (!cardId || row.creditCardId === cardId),
+      cycleFilter === "All" ||
+      billingCycle(
+        row.date,
+        accountCards.find((card: any) => card.id === row.creditCardId),
+      )?.status === cycleFilter,
   );
   const selected = charges.filter((row) => !excluded.includes(row.id));
   const unknownSelected = selected.filter(
@@ -55,10 +70,12 @@ export default function CreditBills({
   const needsConfirmation = unknownSelected.length > 0 && !confirmedUnpaid;
   useEffect(
     () => setConfirmedUnpaid(false),
-    [destination, cardId, excluded, rows],
+    [destination, cardId, excluded, rows, cycleFilter],
   );
-  const amount = pending?.record.amount ?? creditTotal(selected);
-  const sources = accounts.filter((account) => account.id !== destination);
+  const amount =
+    pending?.record.amount ??
+    (paymentAmount ? Number(paymentAmount) : creditTotal(selected));
+  const sources = accounts;
   const options = (items: RecordData[]) =>
     items.map((account) => (
       <option key={account.id} value={account.id}>
@@ -71,6 +88,7 @@ export default function CreditBills({
       setSource(accounts.find((account) => account.id !== value)?.id || "");
     setCardId("");
     setExcluded([]);
+    setPaymentAmount("");
   }
   function close() {
     if (!saving) {
@@ -82,16 +100,25 @@ export default function CreditBills({
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (saving || (!pending && needsConfirmation)) return;
+    let allocations: Record<string, number>;
+    try {
+      allocations =
+        pending?.record.creditAllocations || allocateCredit(selected, amount);
+    } catch (error) {
+      setFailure((error as Error).message);
+      return;
+    }
     const request = pending || {
       operationId: crypto.randomUUID(),
       record: {
         date,
         account: source,
         toAccount: destination,
-        amount: creditTotal(selected),
+        amount,
+        creditAllocations: allocations,
         type: "Transfer",
         creditPayment: true,
-        paidTransactionIds: selected.map((row) => row.id),
+        paidTransactionIds: Object.keys(allocations),
         confirmedUnpaidTransactionIds: unknownSelected.map((row) => row.id),
         description: `Credit card bill payment · ${accounts.find((account) => account.id === destination)?.name || "account"}`,
         payment: "Bank Transfer",
@@ -106,6 +133,7 @@ export default function CreditBills({
         setPaying(false);
         setPending(null);
         setExcluded([]);
+        setPaymentAmount("");
       } else
         setFailure(
           "Payment not confirmed. Retry the same payment to check its status, or close and refresh before starting again.",
@@ -148,6 +176,19 @@ export default function CreditBills({
           <span>
             <b>{row.description}</b>
             <small>
+              {row.amount < row.originalAmount &&
+                `Part paid · original ${money(row.originalAmount)} · `}
+              {(() => {
+                const cycle = billingCycle(
+                  row.date,
+                  accountCards.find(
+                    (card: any) => card.id === row.creditCardId,
+                  ),
+                );
+                return cycle
+                  ? `${cycle.status}${cycle.due ? ` · due ${cycle.due}` : ""} · `
+                  : "";
+              })()}
               {row.settlementStatus === "Unknown"
                 ? "Confirm unpaid · "
                 : "Unpaid · "}
@@ -211,9 +252,11 @@ export default function CreditBills({
               card.statementSnapshot && (!cardId || cardId === card.id),
           )
           .map((card: any) => (
-            <div className="statement-snapshot" key={card.id}>
-              <b>{card.name}</b>
-              <strong>{money(card.statementSnapshot.reportedBalance)}</strong>
+            <details className="statement-snapshot" key={card.id}>
+              <summary>
+                {card.name} · reported{" "}
+                {money(card.statementSnapshot.reportedBalance)}
+              </summary>
               <small>
                 Reported outstanding · {card.statementSnapshot.reportedOn}.
                 Transaction pages through{" "}
@@ -225,7 +268,7 @@ export default function CreditBills({
                 before paying. The reported balance may include transactions
                 outside these pages.
               </p>
-            </div>
+            </details>
           ))}
         {!paying && (
           <label className="field">
@@ -252,6 +295,57 @@ export default function CreditBills({
         )}
         {!paying && (
           <>
+            <div className="cycle-summary" aria-label="Billing cycle summary">
+              {(["Billed", "Unbilled", "Overdue"] as const).map((status) => (
+                <button
+                  key={status}
+                  aria-pressed={cycleFilter === status}
+                  onClick={() => {
+                    setCycleFilter(cycleFilter === status ? "All" : status);
+                    setExcluded([]);
+                  }}
+                >
+                  <small>{status}</small>
+                  <strong>
+                    {money(
+                      creditTotal(
+                        allCharges.filter(
+                          (row) =>
+                            billingCycle(
+                              row.date,
+                              accountCards.find(
+                                (card: any) => card.id === row.creditCardId,
+                              ),
+                            )?.status === status,
+                        ),
+                      ),
+                    )}
+                  </strong>
+                </button>
+              ))}
+            </div>
+            {allCharges.some(
+              (row) =>
+                !billingCycle(
+                  row.date,
+                  accountCards.find(
+                    (card: any) => card.id === row.creditCardId,
+                  ),
+                ),
+            ) && (
+              <p className="credit-help">
+                Set statement and due days in Accounts → Edit account → Billing
+                cycle to classify all charges.
+              </p>
+            )}
+            {cycleFilter !== "All" && (
+              <button
+                className="text-button"
+                onClick={() => setCycleFilter("All")}
+              >
+                Show all cycles
+              </button>
+            )}
             {summary}
             {list}
             {unknownSelected.length > 0 && (
@@ -277,6 +371,7 @@ export default function CreditBills({
                 onClick={() => {
                   setSource(sources[0]?.id || "");
                   setPending(null);
+                  setPaymentAmount("");
                   setFailure("");
                   setPaying(true);
                 }}
@@ -288,8 +383,10 @@ export default function CreditBills({
           </>
         )}
         <p className="credit-help">
-          Debit expenses reduce cash immediately. Credit card expenses stay here
-          until paid; the bill payment reduces the paying account’s cash once.
+          Cycle dates are estimated from transaction dates and your configured
+          days; check the bank statement for posting differences. Debit expenses
+          reduce cash immediately. Credit card expenses stay here until paid;
+          the bill payment reduces the paying account’s cash once.
         </p>
       </div>
       {paying && (
@@ -354,6 +451,24 @@ export default function CreditBills({
                   />
                 </label>
               </fieldset>
+              <label className="field">
+                Payment amount (₹)
+                <input
+                  aria-label="Credit payment amount"
+                  type="number"
+                  min="0.01"
+                  max={creditTotal(selected)}
+                  step="0.01"
+                  value={paymentAmount || creditTotal(selected)}
+                  disabled={saving || !!pending || disabled}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                />
+              </label>
+              <p className="credit-help">
+                Record the amount paid at your bank. Partial payments apply
+                oldest-first; the remaining charges stay unpaid. This does not
+                send money.
+              </p>
               {summary}
               {list}
               {failure && (
@@ -377,7 +492,9 @@ export default function CreditBills({
                     ? "Saving payment…"
                     : pending
                       ? "Retry payment"
-                      : `Pay ${money(amount)} and mark selected paid`}
+                      : amount < creditTotal(selected)
+                        ? `Record partial payment ${money(amount)}`
+                        : `Pay ${money(amount)} and mark selected paid`}
                 </button>
               </div>
             </form>

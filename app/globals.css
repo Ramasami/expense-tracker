@@ -2425,3 +2425,252 @@ select:disabled {
     font-size: 19px;
   }
 }
+/* Focused finance tools: compact summaries, details only when requested. */
+.feature-details {
+  margin: 18px 0;
+  min-width: 0;
+}
+.feature-details > summary,
+.statement-snapshot > summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 12px 0;
+  line-height: 1.5;
+}
+.feature-details > summary small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 4px;
+}
+.feature-body {
+  padding: 16px 0 4px;
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.feature-body > form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.feature-body fieldset,
+.import-row fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.mini-stats,
+.cycle-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.mini-stats > div,
+.cycle-summary > button {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.mini-stats strong {
+  font-size: 21px;
+  overflow-wrap: anywhere;
+}
+.mini-stats small,
+.cycle-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.cycle-summary > button {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  padding: 15px;
+}
+.cycle-summary > button[aria-pressed="true"] {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal);
+}
+.cycle-summary strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.compact-list {
+  display: grid;
+  gap: 0;
+}
+.compact-list > article,
+.compact-list > div {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.compact-list > div,
+.compact-list article > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.compact-list small,
+.compact-list span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.scroll-list {
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.import-modal {
+  max-width: 940px;
+  width: min(940px, calc(100vw - 32px));
+}
+.import-modal > .feature-body {
+  min-height: 0;
+}
+.import-preview {
+  display: grid;
+  gap: 14px;
+}
+.import-row {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+}
+.import-row > label,
+.import-summary label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.import-row input:not([type="checkbox"]),
+.import-row select {
+  width: 100%;
+  min-width: 0;
+}
+.import-summary {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.import-summary small {
+  color: var(--muted);
+}
+.card-cycle-editor {
+  min-width: 0;
+  flex: 1 0 100%;
+}
+.credit-card-row {
+  flex-wrap: wrap;
+}
+.monthly-budgets .entity-card .entity-amount small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.monthly-budgets .section-heading .row-actions {
+  flex-wrap: wrap;
+}
+.statement-snapshot > summary {
+  font-size: 14px;
+}
+.statement-note {
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 650px) {
+  .mini-stats,
+  .cycle-summary {
+    gap: 10px;
+  }
+  .mini-stats strong {
+    font-size: 17px;
+  }
+  .cycle-summary > button {
+    padding: 10px;
+  }
+  .cycle-summary strong {
+    font-size: 15px;
+  }
+  .feature-details.card {
+    padding: 18px;
+  }
+  .import-modal {
+    width: calc(100vw - 20px);
+  }
+  .import-row {
+    padding: 12px;
+  }
+  .credit-card-row {
+    display: flex;
+    gap: 12px;
+  }
+  .credit-card-row > .field {
+    flex: 1;
+    min-width: 150px;
+  }
+  .card-heading > .row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .monthly-budgets .section-heading {
+    align-items: flex-start;
+  }
+}
+.credit-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.credit-card-row > .field {
+  flex: 1;
+  min-width: 150px;
+}
+.credit-card-row > button {
+  order: 1;
+  align-self: center;
+}
+.credit-card-row > details {
+  order: 2;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 2fr);
+  gap: 12px;
+}
+.mini-stats.card {
+  padding: 20px;
+}
+@media (max-width: 650px) {
+  .filter-toolbar {
+    grid-template-columns: 1fr;
+  }
+}

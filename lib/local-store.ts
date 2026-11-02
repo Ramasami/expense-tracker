@@ -1,3 +1,5 @@
+import { reconcile } from "./planning";
+import { duplicateKey } from "./statement-import";
 import { isLoanPayment, validateLoan, validateLoanPayment } from "./loans";
 import {
   isCreditPayment,
@@ -90,7 +92,10 @@ function validateLedgerAccounts(r: RecordData, data: Snapshot) {
   if (assigned.length)
     r.person = assigned.length === 1 ? assigned[0].name : "Combined";
   if (r.type === "Transfer") {
-    if (!active(r.toAccount) || r.toAccount === r.account)
+    if (
+      !active(r.toAccount) ||
+      (r.toAccount === r.account && r.creditPayment !== true)
+    )
       throw Error("Transfers need two different active accounts.");
   } else r.toAccount = "";
 }
@@ -158,6 +163,22 @@ function validate(
     )
       throw Error("Select an active tag.");
     r.tag = tag.name;
+    if (
+      !legacy &&
+      r.statementImport &&
+      r.sourceStatementId &&
+      !r.importDuplicateConfirmed &&
+      data.transactions.some(
+        (row) =>
+          row.id !== r.id &&
+          row.status === "Active" &&
+          duplicateKey(row) === duplicateKey(r),
+      )
+    )
+      throw Error(
+        "A matching statement transaction already exists. Review the duplicate in the import preview.",
+      );
+
     if (!legacy) {
       validateExpenseTiming(r, data);
       if (r.loanPayment === true && r.creditPayment === true)
@@ -199,6 +220,47 @@ function validate(
     (!Number.isFinite(r.amount) || r.amount <= 0)
   )
     throw Error("Enter a positive amount.");
+  if (entity === "budgets" && !legacy) {
+    if (r.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(r.month))
+      throw Error("Choose a valid budget month.");
+    if (
+      r.tagId &&
+      !data.tags.some(
+        (t) =>
+          t.id === r.tagId && t.status === "Active" && t.type === "Expense",
+      )
+    )
+      throw Error("Choose an active expense tag for this budget.");
+    if (
+      r.accountId &&
+      !data.accounts.some((a) => a.id === r.accountId && a.status === "Active")
+    )
+      throw Error("Choose an active budget account.");
+  }
+  if (entity === "settings" && r.kind === "reconciliation" && !legacy) {
+    const account = data.accounts.find(
+      (a) => a.id === r.accountId && a.status === "Active",
+    );
+    if (
+      !account ||
+      !date(r.asOf) ||
+      !Number.isFinite(r.statementBalance) ||
+      (account.openingBalanceAsOf && r.asOf < account.openingBalanceAsOf)
+    )
+      throw Error(
+        "Choose an account, a date after its opening balance, and a valid statement balance.",
+      );
+    const result = reconcile(
+      account,
+      data.transactions,
+      r.asOf,
+      r.statementBalance,
+    );
+    if (result.ledger !== r.ledgerBalance || result.difference !== r.difference)
+      throw Error(
+        "The ledger changed. Start a new comparison before saving reconciliation.",
+      );
+  }
   if (entity === "accounts") {
     if (
       r.status !== "Active" &&
@@ -211,6 +273,18 @@ function validate(
     )
       throw Error("Reassign linked loans before removing this account.");
     const cards = r.creditCards || [];
+    for (const card of cards)
+      for (const field of ["statementDay", "dueDay"]) {
+        if (
+          card[field] !== undefined &&
+          card[field] !== "" &&
+          (!Number.isInteger(Number(card[field])) ||
+            Number(card[field]) < 1 ||
+            Number(card[field]) > 31)
+        )
+          throw Error("Card statement and due days must be from 1 to 31.");
+      }
+
     if (
       !Array.isArray(cards) ||
       cards.some(
@@ -523,13 +597,18 @@ function apply(state: State, op: Operation): any {
         "type",
         "creditPayment",
         "paidTransactionIds",
+        "creditAllocations",
       ].some((field) => JSON.stringify(old[field]) !== JSON.stringify(r[field]))
     )
       throw Error(
         "Delete the existing bill payment before changing its accounts or selected charges.",
       );
   }
-  if (key === "transactions" && isCreditPayment(r) && op.action === "restore")
+  if (
+    key === "transactions" &&
+    r.creditPayment === true &&
+    op.action === "restore"
+  )
     validateCreditPayment(r, state.data.transactions);
   validate(
     key,

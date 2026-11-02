@@ -134,6 +134,20 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
             !["Debit", "Credit"].includes(details.expenseMode)) ||
           (details.creditPayment !== undefined &&
             typeof details.creditPayment !== "boolean") ||
+          (details.creditAllocations != null &&
+            (typeof details.creditAllocations !== "object" ||
+              Array.isArray(details.creditAllocations) ||
+              Object.values(details.creditAllocations).some(
+                (amount: any) =>
+                  typeof amount !== "number" ||
+                  !Number.isFinite(amount) ||
+                  amount <= 0,
+              ))) ||
+          (details.confirmedUnpaidTransactionIds !== undefined &&
+            (!Array.isArray(details.confirmedUnpaidTransactionIds) ||
+              details.confirmedUnpaidTransactionIds.some(
+                (id: unknown) => typeof id !== "string",
+              ))) ||
           (details.paidTransactionIds !== undefined &&
             (!Array.isArray(details.paidTransactionIds) ||
               details.paidTransactionIds.some(
@@ -159,6 +173,10 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
           creditCardId: details.creditCardId || "",
           creditCardName: details.creditCardName || "",
           creditPayment: details.creditPayment === true,
+          creditAllocations: details.creditAllocations || null,
+          confirmedUnpaidTransactionIds:
+            details.confirmedUnpaidTransactionIds || [],
+          importDuplicateConfirmed: details.importDuplicateConfirmed === true,
           paidTransactionIds: details.paidTransactionIds || [],
         };
       })(),

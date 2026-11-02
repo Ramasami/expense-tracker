@@ -1,5 +1,9 @@
 "use client";
 import Analytics from "./analytics";
+import Reconciliation from "./reconciliation";
+import StatementImport from "./statement-import";
+import MonthlyBudgets from "./monthly-budgets";
+import Recovery from "./recovery";
 import AccountBalances from "./account-balances";
 import CreditBills from "./credit-bills";
 import LoanTracker from "./loan-tracker";
@@ -555,6 +559,14 @@ export default function Home() {
     row.account === scopedAccount ||
     row.account ===
       data.accounts.find((account) => account.id === scopedAccount)?.name;
+  const showReportDates = ![
+    "Accounts",
+    "Credit Card Bills",
+    "Loan Tracker",
+    "Budgets",
+    "Settings",
+    "Expense Tags",
+  ].includes(page);
   const range = period === "Custom Range" ? custom : dateRange(period);
   const filtered = filterRows(
     data.transactions,
@@ -1765,9 +1777,11 @@ export default function Home() {
         <main>
           <div className="greeting">
             <div>
-              <div className="eyebrow">
-                A LITTLE CLARITY. A BRIGHTER FUTURE.
-              </div>
+              {page === "Dashboard" && (
+                <div className="eyebrow">
+                  A LITTLE CLARITY. A BRIGHTER FUTURE.
+                </div>
+              )}
               <h1>
                 {page === "Dashboard"
                   ? `Hello, ${googleSession?.ownerName || googleSession?.name || "there"}`
@@ -1776,20 +1790,20 @@ export default function Home() {
                   {page === "Dashboard" ? " ☀" : ""}
                 </span>
               </h1>
-              <p>
-                {page === "Dashboard"
-                  ? "Here’s how your money is moving. Let’s make it count."
-                  : "Your finances, thoughtfully together."}
-              </p>
+              {page === "Dashboard" && (
+                <p>Here’s how your money is moving. Let’s make it count.</p>
+              )}
             </div>
-            <button
-              className="primary"
-              disabled={setup || saving || syncing}
-              onClick={() => open("transactions")}
-            >
-              <Plus size={18} />
-              Add transaction
-            </button>
+            {["Dashboard", "Transactions"].includes(page) && (
+              <button
+                className="primary"
+                disabled={setup || saving || syncing}
+                onClick={() => open("transactions")}
+              >
+                <Plus size={18} />
+                Add transaction
+              </button>
+            )}
           </div>
           <div className="filter-bar">
             <div className="segmented">
@@ -1829,23 +1843,25 @@ export default function Home() {
               >
                 <RefreshCw size={15} />
               </button>
-              <label className="date-select">
-                <CalendarDays size={16} />
-                <select
-                  aria-label="Date range"
-                  value={period}
-                  onChange={(e) => {
-                    setPeriod(e.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  {periods.map((p) => (
-                    <option key={p} value={p}>
-                      {p === "Combined" ? "All" : p}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {showReportDates && (
+                <label className="date-select">
+                  <CalendarDays size={16} />
+                  <select
+                    aria-label="Date range"
+                    value={period}
+                    onChange={(e) => {
+                      setPeriod(e.target.value);
+                      setOffset(0);
+                    }}
+                  >
+                    {periods.map((p) => (
+                      <option key={p} value={p}>
+                        {p === "Combined" ? "All" : p}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           </div>
           {["Dashboard", "Transactions"].includes(page) && (
@@ -1873,7 +1889,7 @@ export default function Home() {
               ))}
             </div>
           )}
-          {period === "Custom Range" && (
+          {showReportDates && period === "Custom Range" && (
             <div className="custom">
               <input
                 aria-label="Start date"
@@ -1896,7 +1912,7 @@ export default function Home() {
             rows={data.transactions}
             stale={stale}
           />
-          <p className="source-status" role="status">
+          <p className="source-status visually-hidden" role="status">
             {sheetStatus}
             {sheetTime ? " · " + sheetTime : ""}. Save destination: Google
             Sheets.
@@ -2246,6 +2262,7 @@ export default function Home() {
                     (account) => account.status === "Active",
                   )}
                   linkedAccounts={visibleAccounts}
+                  onDelete={(record) => void action("loans", "delete", record)}
                   disabled={stale || syncing || saving}
                   error={error}
                   onSave={async (record, op) => {
@@ -2332,6 +2349,18 @@ export default function Home() {
                       <small>({transactions.length})</small>
                     </h2>
                     <div className="row-actions">
+                      <StatementImport
+                        accounts={visibleAccounts}
+                        tags={data.tags}
+                        rows={data.transactions}
+                        disabled={stale || syncing || saving}
+                        onSync={async () => {
+                          await refreshSheet();
+                        }}
+                        onSave={(record, op) =>
+                          mutate("transactions", "create", record, op)
+                        }
+                      />
                       <button
                         onClick={() => {
                           setDeleted(!deleted);
@@ -2598,7 +2627,35 @@ export default function Home() {
                   </div>
                 </section>
               )}
-              {entities[page] && entityPage()}
+              {page === "Budgets" && (
+                <MonthlyBudgets
+                  budgets={data.budgets}
+                  rows={data.transactions}
+                  tags={data.tags}
+                  accounts={visibleAccounts}
+                  person={person}
+                  owners={allOwners(data.settings)}
+                  disabled={stale || syncing || saving}
+                  onSave={(record, op) =>
+                    mutate("budgets", record.id ? "edit" : "create", record, op)
+                  }
+                  onDelete={(record) =>
+                    void action("budgets", "delete", record)
+                  }
+                />
+              )}
+              {entities[page] && page !== "Budgets" && entityPage()}
+              {page === "Accounts" && (
+                <Reconciliation
+                  accounts={visibleAccounts}
+                  rows={data.transactions}
+                  settings={data.settings}
+                  disabled={stale || syncing || saving}
+                  onSave={(record, op) =>
+                    mutate("settings", "create", record, op)
+                  }
+                />
+              )}
               {page === "Accounts" && (
                 <section className="owner-section">
                   <div className="section-heading">
@@ -3043,14 +3100,13 @@ export default function Home() {
                       mutate(
                         "settings",
                         data.settings.some(
-                          (row) => row.kind !== "owner" && row.kind !== "loan",
+                          (row) => !row.kind || row.kind === "preferences",
                         )
                           ? "edit"
                           : "create",
                         {
                           ...data.settings.find(
-                            (row) =>
-                              row.kind !== "owner" && row.kind !== "loan",
+                            (row) => !row.kind || row.kind === "preferences",
                           ),
                           name: "Household preferences",
                           theme,
@@ -3165,6 +3221,14 @@ export default function Home() {
                     the request.
                   </p>
                   <hr />
+                  <Recovery
+                    data={data}
+                    disabled={stale || syncing || saving}
+                    onOpen={() => void refreshSheet(true, "Recovery")}
+                    onRestore={(entity, row, op) =>
+                      mutate(entity, "restore", row, op)
+                    }
+                  />
                   <h3>Your data & backups</h3>
                   <p>
                     Download a JSON export fetched directly from Google Sheets.
