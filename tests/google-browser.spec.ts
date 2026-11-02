@@ -84,7 +84,7 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
   await login(page);
   await page
     .locator("nav")
-    .getByRole("button", { name: "Accounts & Ledgers", exact: true })
+    .getByRole("button", { name: "Accounts", exact: true })
     .click();
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Google ledger");
@@ -111,7 +111,7 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
   await expect(page.locator(".sync")).toContainText("Google connected");
   await page
     .locator("nav")
-    .getByRole("button", { name: "Accounts & Ledgers", exact: true })
+    .getByRole("button", { name: "Accounts", exact: true })
     .click();
   await expect(
     page.locator(".entity-card").filter({ hasText: "Must not save locally" }),
@@ -1058,7 +1058,7 @@ test("owner and account management supports creating, renaming, multiple owners 
   await login(page);
   await page
     .locator("nav")
-    .getByRole("button", { name: "Accounts & Ledgers", exact: true })
+    .getByRole("button", { name: "Accounts", exact: true })
     .click();
   await page.getByRole("button", { name: "Add owner", exact: true }).click();
   let dialog = page.getByRole("dialog");
@@ -1159,7 +1159,7 @@ test("owner-scoped account toggles work on home and transactions; transfer dropd
     accounts.getByRole("button", { name: "Varsha HDFC", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    page.locator(".stat.card").filter({ hasText: "Total expenses" }),
+    page.locator(".stat.card").filter({ hasText: "Paid expenses" }),
   ).toContainText("₹0");
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page
@@ -1230,6 +1230,285 @@ test("owner-scoped account toggles work on home and transactions; transfer dropd
   ).toBe(true);
   await page.screenshot({
     path: "work/account-switcher-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("Accounts config supports multiple credit cards and credit purchases use its card dropdown", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  const account = page.locator(".entity-card").filter({
+    has: page.getByRole("heading", { name: "Ram HDFC", exact: true }),
+  });
+  await account.getByRole("button", { name: "Edit", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog
+    .getByRole("button", { name: "Add credit card", exact: true })
+    .click();
+  await dialog
+    .getByLabel("Credit card 1 name", { exact: true })
+    .fill("HDFC Visa");
+  await dialog
+    .getByRole("button", { name: "Add credit card", exact: true })
+    .click();
+  await dialog
+    .getByLabel("Credit card 2 name", { exact: true })
+    .fill("HDFC RuPay");
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const saved = JSON.parse(f.grids.Accounts[1][7]);
+  expect(saved.creditCards.map((card: any) => card.name)).toEqual([
+    "HDFC Visa",
+    "HDFC RuPay",
+  ]);
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Amount (₹)", { exact: true }).fill("123+77");
+  await dialog.getByLabel("Description / merchant").fill("Delayed purchase");
+  await dialog
+    .getByRole("combobox", { name: "Expense tag", exact: true })
+    .click();
+  await dialog.getByRole("option", { name: "Groceries", exact: true }).click();
+  await dialog
+    .getByLabel("Expense timing", { exact: true })
+    .selectOption("Credit");
+  await expect(
+    dialog.getByLabel("Credit card", { exact: true }).locator("option"),
+  ).toContainText(["Select…", "HDFC Visa", "HDFC RuPay"]);
+  await dialog
+    .getByLabel("Credit card", { exact: true })
+    .selectOption(saved.creditCards[1].id);
+  await dialog
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const details = JSON.parse(f.grids["Expense Ledger"].at(-1)![23]);
+  expect(details.expenseMode).toBe("Credit");
+  expect(details.creditCardName).toBe("HDFC RuPay");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(page.locator(".credit-charge-list")).toContainText(
+    "Delayed purchase",
+  );
+  await expect(page.locator(".credit-charge-list")).toContainText("HDFC RuPay");
+});
+
+test("credit bills select all unpaid charges, settle a subset cross-account, survive retries and reopen on deletion", async ({
+  page,
+}) => {
+  const { f, state } = await mockGoogle(page);
+  const account = JSON.parse(f.grids.Accounts[1][7]);
+  account.creditCards = [
+    { id: "visa", name: "Visa" },
+    { id: "amex", name: "Amex" },
+  ];
+  f.grids.Accounts[1][7] = JSON.stringify(account);
+  for (const [id, name, amount, card] of [
+    ["c1", "First charge", 100, "visa"],
+    ["c2", "Second charge", 200, "visa"],
+    ["c3", "Third charge", 300, "amex"],
+  ] as const) {
+    const row = [...f.grids["Expense Ledger"][1]];
+    row[1] = name;
+    row[4] = amount;
+    row[10] = id;
+    row[23] = JSON.stringify({
+      expenseMode: "Credit",
+      creditCardId: card,
+      creditCardName: card,
+    });
+    f.grids["Expense Ledger"].push(row);
+  }
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(page.locator(".credit-charge")).toHaveCount(3);
+  await expect(
+    page.getByLabel("Select all unpaid transactions", { exact: true }),
+  ).toBeChecked();
+  await expect(page.locator(".credit-summary")).toContainText("₹600");
+  await page
+    .getByLabel("Credit card filter", { exact: true })
+    .selectOption("visa");
+  await expect(page.locator(".credit-charge")).toHaveCount(2);
+  await expect(page.locator(".credit-summary")).toContainText("₹300");
+  await page.getByLabel("Credit card filter", { exact: true }).selectOption("");
+  await page.getByRole("button", { name: /Pay selected/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("From account", { exact: true })
+    .selectOption("varsha-bank");
+  await dialog
+    .locator(".credit-charge")
+    .filter({ hasText: "Second charge" })
+    .getByRole("checkbox")
+    .uncheck();
+  await expect(dialog.locator(".credit-summary")).toContainText(
+    "Selected · 2 transactions",
+  );
+  await expect(dialog.locator(".credit-summary")).toContainText("₹400");
+  state.dropWriteResponse = true;
+  await dialog
+    .getByRole("button", { name: /Pay ₹400 and mark selected paid/ })
+    .click();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Retry payment", exact: true }),
+  ).toBeEnabled();
+  await dialog
+    .getByRole("button", { name: "Retry payment", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const payments = f.grids["Expense Ledger"]
+    .slice(1)
+    .filter((row) => JSON.parse(row[23] || "{}").creditPayment);
+  expect(payments).toHaveLength(1);
+  expect(payments[0][18]).toBe("varsha-bank");
+  expect(payments[0][19]).toBe("ram-bank");
+  expect(JSON.parse(payments[0][23]).paidTransactionIds).toEqual([
+    "sheet-tx-c1",
+    "sheet-tx-c3",
+  ]);
+  await expect(page.locator(".credit-charge")).toHaveCount(1);
+  await expect(page.locator(".credit-charge")).toContainText("Second charge");
+  await page.reload();
+  await expect(page.locator(".sync")).toContainText("Google connected");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(page.locator(".credit-charge")).toHaveCount(1);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "All", exact: true })
+    .click();
+  const payment = page
+    .locator(".transaction-item")
+    .filter({ hasText: "Credit card bill payment" });
+  page.once("dialog", (dialog) => dialog.accept());
+  await payment
+    .getByRole("button", { name: "Delete transaction", exact: true })
+    .click();
+  await expect(payment).toHaveCount(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(page.locator(".credit-charge")).toHaveCount(3);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await expect
+    .poll(() =>
+      page
+        .locator(".sidebar")
+        .evaluate((element) => element.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
+  await page.screenshot({
+    path: "work/credit-bills-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("loan tracker saves opening paid amounts, splits repayments, reduces principal and persists after refresh", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Loan Tracker", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add loan", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Loan name", { exact: true }).fill("Home loan");
+  await dialog
+    .getByLabel("Original principal (₹)", { exact: true })
+    .fill("10000");
+  await dialog
+    .getByLabel("Annual interest rate (%)", { exact: true })
+    .fill("8.5");
+  await dialog
+    .getByLabel("Principal paid before tracking (₹)", { exact: true })
+    .fill("2500");
+  await dialog
+    .getByLabel("Interest paid before tracking (₹)", { exact: true })
+    .fill("500");
+  await dialog.getByRole("button", { name: "Save loan", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const card = page.locator(".loan-card");
+  await expect(card).toContainText("₹7,500");
+  await expect(card).toContainText("8.5% annual");
+  await card.getByRole("button", { name: "Pay loan", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("From account", { exact: true })
+    .selectOption("varsha-bank");
+  await dialog.getByLabel("Principal paid (₹)", { exact: true }).fill("500");
+  await dialog.getByLabel("Interest paid (₹)", { exact: true }).fill("100");
+  await expect(dialog.locator(".credit-summary")).toContainText("₹600");
+  await dialog
+    .getByRole("button", { name: "Save loan payment", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toContainText("₹7,000");
+  await expect(card).toContainText("₹3,000");
+  await expect(card).toContainText("₹600");
+  const details = JSON.parse(f.grids["Expense Ledger"].at(-1)![23]);
+  expect(details.loanPayment).toBe(true);
+  expect(details.principalPaid).toBe(500);
+  expect(details.interestPaid).toBe(100);
+  expect(f.grids["Expense Ledger"].at(-1)![18]).toBe("varsha-bank");
+  await page.reload();
+  await expect(page.locator(".sync")).toContainText("Google connected");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Loan Tracker", exact: true })
+    .click();
+  await expect(page.locator(".loan-card")).toContainText("₹7,000");
+  await page
+    .locator(".loan-card")
+    .getByRole("button", { name: "Edit loan", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Annual interest rate (%)", { exact: true })
+    .fill("8");
+  await dialog.getByRole("button", { name: "Save loan", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toContainText("8% annual");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() =>
+      page
+        .locator(".sidebar")
+        .evaluate((element) => element.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
+  await page.screenshot({
+    path: "work/loan-tracker-mobile.png",
     fullPage: true,
   });
 });

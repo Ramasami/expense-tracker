@@ -1,3 +1,10 @@
+import { isLoanPayment, validateLoan, validateLoanPayment } from "./loans";
+import {
+  isCreditPayment,
+  paymentFor,
+  unpaidCredit,
+  validateCreditPayment,
+} from "./credit";
 import { activeOwners, allOwners, accountOwners, ownerEmails } from "./owners";
 import { empty, Snapshot, RecordData } from "./finance";
 import { z } from "zod";
@@ -87,6 +94,35 @@ function validateLedgerAccounts(r: RecordData, data: Snapshot) {
       throw Error("Transfers need two different active accounts.");
   } else r.toAccount = "";
 }
+function validateExpenseTiming(r: RecordData, data: Snapshot) {
+  if (r.type === "Expense") {
+    r.expenseMode ||= "Debit";
+    if (r.expenseMode === "Credit") {
+      const card = data.accounts
+        .find((account) => account.id === r.account)
+        ?.creditCards?.find((card: any) => card.id === r.creditCardId);
+      const historicalCard = data.transactions.some(
+        (row) =>
+          row.id === r.id &&
+          row.account === r.account &&
+          row.expenseMode === "Credit" &&
+          row.creditCardId === r.creditCardId,
+      );
+      if (!card && !historicalCard)
+        throw Error(
+          "Choose a credit card for this account. Add cards in Accounts first.",
+        );
+      r.creditCardName =
+        card?.name || r.creditCardName || "Removed credit card";
+      r.payment = "Credit Card";
+    } else {
+      r.creditCardId = "";
+      r.creditCardName = "";
+    }
+    if (!["Debit", "Credit"].includes(r.expenseMode))
+      throw Error("Choose Debit or Credit Card.");
+  }
+}
 function validate(
   entity: Entity,
   r: RecordData,
@@ -122,6 +158,14 @@ function validate(
     )
       throw Error("Select an active tag.");
     r.tag = tag.name;
+    if (!legacy) {
+      validateExpenseTiming(r, data);
+      if (r.loanPayment === true && r.creditPayment === true)
+        throw Error("Choose either a loan or credit card payment.");
+      if (r.creditPayment === true) validateCreditPayment(r, data.transactions);
+      if (r.loanPayment === true)
+        validateLoanPayment(r, data.settings, data.transactions);
+    }
   } else if (!String(r.name || "").trim()) throw Error("Enter a name.");
   if (entity === "tags") {
     if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type))
@@ -155,6 +199,50 @@ function validate(
     (!Number.isFinite(r.amount) || r.amount <= 0)
   )
     throw Error("Enter a positive amount.");
+  if (entity === "accounts") {
+    if (
+      r.status !== "Active" &&
+      data.settings.some(
+        (loan) =>
+          loan.kind === "loan" &&
+          loan.status === "Active" &&
+          loan.accountId === r.id,
+      )
+    )
+      throw Error("Reassign linked loans before removing this account.");
+    const cards = r.creditCards || [];
+    if (
+      !Array.isArray(cards) ||
+      cards.some(
+        (card: any) =>
+          !card ||
+          typeof card.id !== "string" ||
+          !card.id ||
+          typeof card.name !== "string" ||
+          !card.name.trim() ||
+          card.name.trim().length > 120,
+      ) ||
+      new Set(cards.map((card: any) => card.id)).size !== cards.length ||
+      new Set(cards.map((card: any) => card.name.trim().toLowerCase())).size !==
+        cards.length
+    )
+      throw Error("Credit cards need unique names and IDs.");
+    if (
+      unpaidCredit(data.transactions, r.id).some(
+        (row) => !cards.some((card: any) => card.id === row.creditCardId),
+      )
+    )
+      throw Error("Pay outstanding credit charges before removing their card.");
+    if (!legacy)
+      r.creditCards = cards.map((card: any) => ({
+        id: card.id,
+        name: card.name.trim(),
+      }));
+    if (r.status !== "Active" && unpaidCredit(data.transactions, r.id).length)
+      throw Error(
+        "Pay outstanding credit charges before removing this account.",
+      );
+  }
   if (entity === "accounts" && Array.isArray(r.ownerIds)) {
     if (
       !r.ownerIds.length ||
@@ -164,6 +252,15 @@ function validate(
       )
     )
       throw Error("Choose at least one active account owner.");
+  }
+  if (entity === "settings" && r.kind === "loan") {
+    validateLoan(r, data.transactions);
+    if (
+      !data.accounts.some(
+        (account) => account.id === r.accountId && account.status === "Active",
+      )
+    )
+      throw Error("Choose an active linked account for the loan.");
   }
   if (entity === "settings" && r.kind === "owner") {
     const others = allOwners(data.settings).filter(
@@ -211,7 +308,10 @@ function validate(
     (!Number.isFinite(Number(r.funded || 0)) || Number(r.funded || 0) < 0)
   )
     throw Error("Enter a valid funded amount.");
-  if (entity === "recurring" && !legacy) validateLedgerAccounts(r, data);
+  if (entity === "recurring" && !legacy) {
+    validateLedgerAccounts(r, data);
+    validateExpenseTiming(r, data);
+  }
   if (
     entity === "recurring" &&
     (!date(r.nextDate) ||
@@ -310,6 +410,8 @@ function apply(state: State, op: Operation): any {
             description: schedule.name,
             amount: schedule.amount,
             type: schedule.type,
+            expenseMode: schedule.expenseMode || "Debit",
+            creditCardId: schedule.creditCardId || "",
             tagId: schedule.tagId,
             person: schedule.person,
             payment: schedule.payment || "Bank Transfer",
@@ -373,6 +475,61 @@ function apply(state: State, op: Operation): any {
   if (old?.source === "google-sheet") r.localEdited = true;
   if (key === "settings" && r.kind === "owner" && old && old.name !== r.name)
     r.aliases = Array.from(new Set([...(old.aliases || []), old.name]));
+  if (key === "transactions" && isLoanPayment(r) && op.action === "restore")
+    validateLoanPayment(r, state.data.settings, state.data.transactions);
+  if (
+    key === "transactions" &&
+    old &&
+    isLoanPayment(old) &&
+    op.action === "edit" &&
+    [
+      "amount",
+      "principalPaid",
+      "interestPaid",
+      "loanId",
+      "loanPayment",
+      "type",
+      "account",
+    ].some((field) => JSON.stringify(old[field]) !== JSON.stringify(r[field]))
+  )
+    throw Error(
+      "Delete the existing loan payment before changing the repayment split or account.",
+    );
+  if (key === "transactions" && old) {
+    const changed = [
+      "amount",
+      "account",
+      "type",
+      "expenseMode",
+      "creditCardId",
+      "status",
+    ].some(
+      (field) =>
+        (old[field] ?? (field === "expenseMode" ? "Debit" : "")) !==
+        (r[field] ?? (field === "expenseMode" ? "Debit" : "")),
+    );
+    if (paymentFor(old.id, state.data.transactions) && changed)
+      throw Error(
+        "This credit transaction is paid. Delete its bill payment before changing or deleting the charge.",
+      );
+    if (
+      isCreditPayment(old) &&
+      op.action === "edit" &&
+      [
+        "amount",
+        "account",
+        "toAccount",
+        "type",
+        "creditPayment",
+        "paidTransactionIds",
+      ].some((field) => JSON.stringify(old[field]) !== JSON.stringify(r[field]))
+    )
+      throw Error(
+        "Delete the existing bill payment before changing its accounts or selected charges.",
+      );
+  }
+  if (key === "transactions" && isCreditPayment(r) && op.action === "restore")
+    validateCreditPayment(r, state.data.transactions);
   validate(
     key,
     r,

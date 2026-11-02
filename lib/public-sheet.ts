@@ -109,6 +109,52 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
       payment: row[5] || "",
       person: ["Ram", "Varsha"].includes(row[6]) ? row[6] : "Combined",
       notes: row[7] || "",
+      ...(() => {
+        const details = JSON.parse(
+          row[field(lh, ["transactionDetails"])] || "{}",
+        );
+        if (
+          !details ||
+          typeof details !== "object" ||
+          Array.isArray(details) ||
+          ["loanId", "creditCardId", "creditCardName"].some(
+            (key) =>
+              details[key] !== undefined && typeof details[key] !== "string",
+          ) ||
+          (details.loanPayment !== undefined &&
+            typeof details.loanPayment !== "boolean") ||
+          ["principalPaid", "interestPaid"].some(
+            (key) =>
+              details[key] !== undefined &&
+              (typeof details[key] !== "number" ||
+                !Number.isFinite(details[key]) ||
+                details[key] < 0),
+          ) ||
+          (details.expenseMode &&
+            !["Debit", "Credit"].includes(details.expenseMode)) ||
+          (details.creditPayment !== undefined &&
+            typeof details.creditPayment !== "boolean") ||
+          (details.paidTransactionIds !== undefined &&
+            (!Array.isArray(details.paidTransactionIds) ||
+              details.paidTransactionIds.some(
+                (id: unknown) => typeof id !== "string",
+              )))
+        )
+          throw Error(
+            `Expense Ledger row ${i + 2} has invalid transaction details.`,
+          );
+        return {
+          expenseMode: details.expenseMode || "Debit",
+          loanPayment: details.loanPayment === true,
+          loanId: details.loanId || "",
+          principalPaid: Number(details.principalPaid || 0),
+          interestPaid: Number(details.interestPaid || 0),
+          creditCardId: details.creditCardId || "",
+          creditCardName: details.creditCardName || "",
+          creditPayment: details.creditPayment === true,
+          paidTransactionIds: details.paidTransactionIds || [],
+        };
+      })(),
       receipts: JSON.parse(row[field(lh, ["receipts"])] || "[]"),
       account: row[field(lh, ["account"])] || "",
       toAccount: row[field(lh, ["toAccount"])] || "",

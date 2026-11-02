@@ -1,3 +1,5 @@
+import { isLoanPayment } from "./loans";
+import { isCredit, isCreditPayment } from "./credit";
 import { belongsToOwner } from "./owners";
 import { RecordData, totals } from "./finance";
 export function group(rows: RecordData[], field: string) {
@@ -27,7 +29,9 @@ export function report(
     case "Category Expense Report":
     case "Tag Report":
       return group(
-        rows.filter((r) => r.type === "Expense"),
+        rows.filter(
+          (r) => (r.type === "Expense" && !isCredit(r)) || isCreditPayment(r),
+        ),
         "tag",
       );
     case "Merchant Report":
@@ -86,7 +90,10 @@ export function budgetSpent(b: RecordData, rows: RecordData[]) {
         (!b.person || b.person === "Combined" || t.person === b.person) &&
         (!b.month || String(t.date).startsWith(b.month)),
     )
-    .reduce((s, t) => s + Number(t.amount), 0);
+    .reduce(
+      (s, t) => s + Number(isLoanPayment(t) ? t.interestPaid : t.amount),
+      0,
+    );
 }
 export function classifyExpenses(
   rows: RecordData[],

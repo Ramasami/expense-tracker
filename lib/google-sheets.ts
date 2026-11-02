@@ -1,3 +1,5 @@
+import { validateLoan, validateLoanPayment } from "./loans";
+import { transactionDetails, validateCreditPayment } from "./credit";
 import { googleToken, currentGoogleSession } from "./google-auth";
 import { SHEET_ID, snapshotFromCsv } from "./public-sheet";
 import { empty, Snapshot, RecordData } from "./finance";
@@ -35,6 +37,7 @@ const LEDGER_META = [
   "fingerprint",
   "typeOverride",
   "receipts",
+  "transactionDetails",
 ];
 const TAG_META = [
   "id",
@@ -222,7 +225,7 @@ async function prepare() {
       "The existing Expense Ledger and Expense Tags tabs are required.",
     );
   const [lh, th, settings] = await values([
-    bounded(ledger, 23, 1),
+    bounded(ledger, 24, 1),
     bounded(tags, 16, 1),
     ...(sheets.some((s: any) => s.title === "App Settings")
       ? ["'App Settings'!A1:H1"]
@@ -251,17 +254,19 @@ async function prepare() {
     )
   ) {
     // Upgrade existing app metadata without touching financial cells or formulas.
-    if (lh[0]?.[22] !== "receipts") {
+    if (lh[0]?.[22] !== "receipts" || lh[0]?.[23] !== "transactionDetails") {
       const requests: any[] = [];
-      if (ledger.gridProperties.columnCount < 23)
+      if (ledger.gridProperties.columnCount < 24)
         requests.push({
           appendDimension: {
             sheetId: ledger.sheetId,
             dimension: "COLUMNS",
-            length: 23 - ledger.gridProperties.columnCount,
+            length: 24 - ledger.gridProperties.columnCount,
           },
         });
-      requests.push(cellRequest(ledger.sheetId, 1, 23, ["receipts"]));
+      requests.push(
+        cellRequest(ledger.sheetId, 1, 23, ["receipts", "transactionDetails"]),
+      );
       await batch(requests);
       metadataCache = null;
     }
@@ -269,7 +274,7 @@ async function prepare() {
   }
   const [ld, tg, type, summary, invest] = await values(
     [
-      bounded(ledger, 23, 5000),
+      bounded(ledger, 24, 5000),
       bounded(tags, 16),
       "'Expense Ledger'!D2",
       "'Monthly Expense Tracker'!A1:O1100",
@@ -320,7 +325,7 @@ async function prepare() {
     );
   }
   for (const [s, cols] of [
-    [ledger, 23],
+    [ledger, 24],
     [tags, 16],
   ] as const)
     if (s.gridProperties.columnCount < cols)
@@ -432,7 +437,7 @@ export async function readGoogleSnapshot(
   const ranges = [
     bounded(
       sheets.find((s: any) => s.title === "Expense Ledger"),
-      23,
+      24,
       5000,
     ),
     bounded(
@@ -558,6 +563,7 @@ export function recordRequests(
       "",
       record.type,
       JSON.stringify(record.receipts || []),
+      JSON.stringify(transactionDetails(record)),
     ];
     const requests = [
       cellRequest(sheetId, row, 2, [record.description, record.tag]),
@@ -733,6 +739,8 @@ async function save(operation: CloudOperation): Promise<Record<string, any>> {
             description: current.name,
             amount: Number(current.amount),
             type: current.type,
+            expenseMode: current.expenseMode || "Debit",
+            creditCardId: current.creditCardId || "",
             tagId: current.tagId,
             person: current.person,
             payment: current.payment || "Bank Transfer",
@@ -898,6 +906,12 @@ async function save(operation: CloudOperation): Promise<Record<string, any>> {
         };
     }
   }
+  // Recheck settlement eligibility after row reservation using the latest Sheet data.
+  if (result.creditPayment === true && result.status === "Active")
+    validateCreditPayment(result, before.data.transactions);
+  if (result.kind === "loan") validateLoan(result, before.data.transactions);
+  if (result.loanPayment === true && result.status === "Active")
+    validateLoanPayment(result, before.data.settings, before.data.transactions);
   const requests: any[] = [];
   for (const change of changes) {
     const sheet = sheets.find((s: any) => s.title === tab(change.entity));

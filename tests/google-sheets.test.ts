@@ -214,3 +214,62 @@ test("transaction receipt links survive a Sheets save and readback", () =>
       receipt,
     ]);
   }));
+
+test("credit card details and loan repayments persist in Sheet transaction metadata", () =>
+  signed(async (f) => {
+    const account = JSON.parse(f.grids.Accounts[1][7]);
+    account.creditCards = [{ id: "visa", name: "HDFC Visa" }];
+    f.grids.Accounts[1][7] = JSON.stringify(account);
+    const credit = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: { ...tx, expenseMode: "Credit", creditCardId: "visa" },
+      operationId: "credit-buy",
+    });
+    assert.equal(credit.record.expenseMode, "Credit");
+    assert.equal(credit.record.creditCardName, "HDFC Visa");
+    const payment = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: {
+        ...tx,
+        type: "Transfer",
+        creditPayment: true,
+        paidTransactionIds: [credit.record.id],
+        account: "varsha-bank",
+        toAccount: "ram-bank",
+      },
+      operationId: "credit-pay",
+    });
+    assert.deepEqual(payment.record.paidTransactionIds, [credit.record.id]);
+    const loan = await saveGoogle({
+      entity: "settings",
+      action: "create",
+      record: {
+        kind: "loan",
+        name: "Home",
+        principal: 10000,
+        interestRate: 9,
+        openingPrincipalPaid: 1000,
+        openingInterestPaid: 100,
+        accountId: "ram-bank",
+      },
+      operationId: "loan-create",
+    });
+    const repayment = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: {
+        ...tx,
+        loanPayment: true,
+        loanId: loan.record.id,
+        principalPaid: 100,
+        interestPaid: 50,
+      },
+      operationId: "loan-pay",
+    });
+    assert.equal(repayment.record.principalPaid, 100);
+    assert.equal(repayment.record.interestPaid, 50);
+    const details = JSON.parse(f.grids["Expense Ledger"].at(-1)![23]);
+    assert.equal(details.loanId, loan.record.id);
+  }));

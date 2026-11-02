@@ -1,3 +1,5 @@
+import { isLoanPayment } from "./loans";
+import { isCredit, isCreditPayment } from "./credit";
 import { belongsToOwner } from "./owners";
 export type RecordData = {
   id: string;
@@ -40,14 +42,22 @@ export function totals(rows: RecordData[]) {
   for (const r of rows.filter((r) => r.status !== "Deleted")) {
     const n = Number(r.amount) || 0;
     if (r.type === "Income") income += n;
-    if (r.type === "Expense") expense += n;
+    if (isLoanPayment(r)) expense += Number(r.interestPaid) || 0;
+    else if ((r.type === "Expense" && !isCredit(r)) || isCreditPayment(r))
+      expense += n;
     if (r.type === "Investment") investment += n;
   }
   return {
     income,
     expense,
     investment,
-    net: income - expense - investment,
+    net:
+      income -
+      expense -
+      investment -
+      rows
+        .filter((row) => row.status !== "Deleted" && isLoanPayment(row))
+        .reduce((sum, row) => sum + Number(row.principalPaid || 0), 0),
     savings: income ? (100 * (income - expense)) / income : 0,
   };
 }
@@ -59,12 +69,14 @@ export function balance(account: RecordData, rows: RecordData[]) {
       .reduce(
         (sum, r) =>
           sum +
-          (r.account === account.id
+          (r.account === account.id && !isCredit(r)
             ? r.type === "Income"
               ? Number(r.amount)
               : -Number(r.amount)
             : 0) +
-          (r.type === "Transfer" && r.toAccount === account.id
+          (r.type === "Transfer" &&
+          !isCreditPayment(r) &&
+          r.toAccount === account.id
             ? Number(r.amount)
             : 0),
         0,

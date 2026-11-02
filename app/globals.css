@@ -2161,3 +2161,160 @@ select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.credit-bills-content {
+  padding: 0 24px 24px;
+}
+.credit-summary {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 20px 0;
+}
+.credit-summary div {
+  display: grid;
+  gap: 7px;
+}
+.credit-summary strong {
+  font-size: 24px;
+}
+.credit-summary small,
+.credit-charge small,
+.credit-help {
+  color: var(--muted);
+}
+.credit-charge-list {
+  max-height: 55vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.credit-select-all,
+.credit-charge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--border);
+}
+.credit-charge span {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.credit-charge strong {
+  flex-shrink: 0;
+}
+.credit-charge input,
+.credit-select-all input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: #ff385c;
+}
+.credit-pay-action {
+  margin-top: 20px;
+}
+.credit-help {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 20px;
+}
+.credit-outstanding {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+.credit-outstanding strong {
+  font-size: 24px;
+  color: var(--coral);
+}
+.credit-chip {
+  color: #ae6816;
+  background: #fff4db;
+}
+.credit-payment-modal .modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.credit-payment-modal {
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.credit-card-editor {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+.credit-card-editor p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.credit-card-row {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  margin: 12px 0;
+}
+.credit-card-row .field {
+  flex: 1;
+  min-width: 0;
+}
+.credit-card-row button {
+  margin-bottom: 4px;
+}
+.credit-bills-content > .field {
+  margin-bottom: 16px;
+}
+
+.loan-card {
+  padding: 24px;
+}
+.loan-card h3 {
+  margin: 0 0 8px;
+}
+.loan-card > p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 24px;
+}
+.loan-card .entity-amount {
+  display: block;
+  margin: 8px 0 20px;
+}
+.loan-details {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+}
+.loan-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.loan-details dt {
+  color: var(--muted);
+}
+.loan-details dd {
+  margin: 0;
+  font-weight: 600;
+}
+.loan-tracker .section-heading {
+  gap: 16px;
+  flex-wrap: wrap;
+}

@@ -1,4 +1,6 @@
 "use client";
+import { isLoanPayment } from "../lib/loans";
+import { isCredit, isCreditPayment } from "../lib/credit";
 import { RecordData, money, totals } from "../lib/finance";
 import { group, classifyExpenses, spendingComparison } from "../lib/reports";
 export default function Analytics({
@@ -15,7 +17,9 @@ export default function Analytics({
   onDrill: (tag: string, date?: string) => void;
 }) {
   const expenses = classifyExpenses(
-    rows.filter((r) => r.type === "Expense"),
+    rows.filter(
+      (r) => (r.type === "Expense" && !isCredit(r)) || isCreditPayment(r),
+    ),
     tags,
   );
   const days = group(expenses, "date").sort((a, b) =>
@@ -29,12 +33,14 @@ export default function Analytics({
     }),
     "week",
   );
+  const spendingAmount = (row: RecordData) =>
+    Number(isLoanPayment(row) ? row.interestPaid : row.amount);
   const average = expenses.length
-    ? expenses.reduce((s, r) => s + Number(r.amount), 0) / expenses.length
+    ? expenses.reduce((s, r) => s + spendingAmount(r), 0) / expenses.length
     : 0;
   const unusuallyLarge = expenses
-    .filter((r) => r.amount > average * 2 && expenses.length > 2)
-    .sort((a, b) => b.amount - a.amount);
+    .filter((r) => spendingAmount(r) > average * 2 && expenses.length > 2)
+    .sort((a, b) => spendingAmount(b) - spendingAmount(a));
   const max = Math.max(1, ...days.map((d) => d.expense));
   const grouped = (label: string, field: string) => (
     <section className="card">
@@ -58,7 +64,7 @@ export default function Analytics({
     month = now.toISOString().slice(0, 7),
     monthSpend = expenses
       .filter((r) => r.date.startsWith(month))
-      .reduce((s, r) => s + Number(r.amount), 0);
+      .reduce((s, r) => s + spendingAmount(r), 0);
   const projection =
     (monthSpend / now.getDate()) *
     new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();

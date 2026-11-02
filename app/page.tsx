@@ -1,5 +1,16 @@
 "use client";
 import Analytics from "./analytics";
+import CreditBills from "./credit-bills";
+import LoanTracker from "./loan-tracker";
+import { isLoanPayment } from "../lib/loans";
+import CreditCardEditor from "./credit-card-editor";
+import {
+  isCredit,
+  isCreditPayment,
+  creditTotal,
+  unpaidCredit,
+  paymentFor,
+} from "../lib/credit";
 import Receipts from "./receipts";
 import AmountField from "./amount-field";
 import {
@@ -94,10 +105,12 @@ import {
 const navigation = [
   ["Dashboard", LayoutDashboard],
   ["Transactions", ArrowLeftRight],
+  ["Credit Card Bills", Wallet],
+  ["Loan Tracker", Landmark],
   ["Expense Analytics", ChartNoAxesCombined],
   ["Investments", TrendingUp],
   ["Income & Cash Flow", Wallet],
-  ["Accounts & Ledgers", Landmark],
+  ["Accounts", Landmark],
   ["Expense Tags", Tags],
   ["Budgets", Target],
   ["Financial Goals", Leaf],
@@ -132,7 +145,7 @@ const periods = [
   "Custom Range",
 ];
 const entities: Record<string, keyof Snapshot> = {
-  "Accounts & Ledgers": "accounts",
+  Accounts: "accounts",
   "Expense Tags": "tags",
   Budgets: "budgets",
   "Financial Goals": "goals",
@@ -550,6 +563,11 @@ export default function Home() {
   ).filter(matchesAccount);
   const active = filtered.filter((r) => r.status !== "Deleted");
   const stats = totals(active);
+  const outstandingCredit = unpaidCredit(data.transactions).filter(
+    (row) =>
+      belongsToOwner(row, person, data.accounts, allOwners(data.settings)) &&
+      matchesAccount(row),
+  );
   const duration = Math.max(
     1,
     (Date.parse(range[1]) - Date.parse(range[0])) / 86400000 + 1,
@@ -598,9 +616,13 @@ export default function Home() {
   );
   const categories = Object.entries(
     active
-      .filter((r) => r.type === "Expense")
+      .filter(
+        (r) => (r.type === "Expense" && !isCredit(r)) || isCreditPayment(r),
+      )
       .reduce((a: any, r) => {
-        a[r.tag] = (a[r.tag] || 0) + Number(r.amount);
+        a[r.tag] =
+          (a[r.tag] || 0) +
+          Number(isLoanPayment(r) ? r.interestPaid : r.amount);
         return a;
       }, {}),
   )
@@ -611,7 +633,10 @@ export default function Home() {
     active.forEach((r) => {
       const key = r.date.slice(0, 7);
       m[key] ||= { name: key, Income: 0, Expense: 0, Investment: 0 };
-      if (r.type in m[key]) m[key][r.type] += Number(r.amount);
+      if (isLoanPayment(r)) m[key].Expense += Number(r.interestPaid || 0);
+      else if (isCreditPayment(r)) m[key].Expense += Number(r.amount);
+      else if (!isCredit(r) && r.type in m[key])
+        m[key][r.type] += Number(r.amount);
     });
     return Object.values(m)
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -650,6 +675,8 @@ export default function Home() {
             r.tag,
             r.person,
             r.payment,
+            r.expenseMode,
+            r.creditCardName,
             accountName(r.account),
             accountName(r.toAccount),
           ]
@@ -657,7 +684,14 @@ export default function Home() {
             .toLowerCase()
             .includes(search.trim().toLowerCase())) &&
         (!tagFilter || r.tagId === tagFilter || r.tag === tagFilter) &&
-        (!typeFilter || r.type === typeFilter) &&
+        (!typeFilter ||
+          (typeFilter === "Debit"
+            ? r.type === "Expense" && !isCredit(r)
+            : typeFilter === "Credit"
+              ? isCredit(r)
+              : typeFilter === "CreditPayment"
+                ? isCreditPayment(r)
+                : r.type === typeFilter)) &&
         matchesAccount(r) &&
         (!paymentFilter || r.payment === paymentFilter) &&
         (!receiptFilter ||
@@ -691,6 +725,15 @@ export default function Home() {
   function open(entity: string, record: any = {}) {
     if (stale || syncing) {
       setError("Sync with Google Sheets before editing cached data.");
+      return;
+    }
+    if (
+      entity === "transactions" &&
+      (isCreditPayment(record) || isLoanPayment(record))
+    ) {
+      setNotice(
+        "This payment is linked to a bill or loan. Delete it and create a new payment to change the payment details.",
+      );
       return;
     }
     setModal({
@@ -731,6 +774,7 @@ export default function Home() {
         ...(entity === "owners" ? { kind: "owner" } : {}),
         type: entity === "accounts" ? "Bank" : "Expense",
         payment: "UPI",
+        expenseMode: "Debit",
         color: "#ff385c",
         ...record,
       },
@@ -745,9 +789,9 @@ export default function Home() {
     op = crypto.randomUUID(),
     targetId?: string,
   ) {
-    if (entity === "owners") {
+    if (entity === "owners" || entity === "loans") {
+      record = { ...record, kind: entity === "owners" ? "owner" : "loan" };
       entity = "settings";
-      record = { ...record, kind: "owner" };
     }
     setSaving(true);
     try {
@@ -812,6 +856,7 @@ export default function Home() {
           .map((email) => email.trim().toLowerCase())
           .filter(Boolean);
       if (modal.entity === "accounts") {
+        record.creditCards = JSON.parse(String(values.creditCards || "[]"));
         record.ownerIds = new FormData(e.currentTarget)
           .getAll("ownerIds")
           .map(String);
@@ -1194,6 +1239,26 @@ export default function Home() {
                 </div>
                 <div className="transaction-meta">
                   <span className="chip">{r.tag || "Uncategorized"}</span>
+                  {isLoanPayment(r) && (
+                    <span className="chip">
+                      Loan repayment · principal {money(r.principalPaid)} +
+                      interest {money(r.interestPaid)}
+                    </span>
+                  )}
+                  {((r.type === "Expense" && !isLoanPayment(r)) ||
+                    isCreditPayment(r)) && (
+                    <span
+                      className={"chip " + (isCredit(r) ? "credit-chip" : "")}
+                    >
+                      {isCreditPayment(r)
+                        ? "Credit Card bill paid"
+                        : isCredit(r)
+                          ? paymentFor(r.id, data.transactions)
+                            ? "Credit Card · Paid"
+                            : "Credit Card · Unpaid"
+                          : "Debit"}
+                    </span>
+                  )}
                   <span>
                     {r.person === "Combined" ? "All" : r.person || "Unassigned"}
                   </span>
@@ -1206,7 +1271,7 @@ export default function Home() {
                 </div>
                 <div className="transaction-bottomline">
                   <div className="transaction-context">
-                    <span>{r.payment || r.type}</span>
+                    <span>{r.creditCardName || r.payment || r.type}</span>
                     {r.account && (
                       <span>
                         {accountName(r.account)}
@@ -1280,6 +1345,8 @@ export default function Home() {
             r.tag,
             r.person,
             r.payment,
+            r.expenseMode,
+            r.creditCardName,
             accountName(r.account),
             accountName(r.toAccount),
           ]
@@ -1351,6 +1418,17 @@ export default function Home() {
                     <strong className="entity-amount">
                       {money(balance(r, data.transactions))}
                     </strong>
+                    {(r.creditCards || []).length > 0 && (
+                      <p>
+                        Cards:{" "}
+                        {r.creditCards.map((card: any) => card.name).join(", ")}
+                        <br />
+                        Unpaid credit card:{" "}
+                        {money(
+                          creditTotal(unpaidCredit(data.transactions, r.id)),
+                        )}
+                      </p>
+                    )}
                     <small>
                       Current balance · opening{" "}
                       {money(Number(r.openingBalance))}
@@ -1869,7 +1947,7 @@ export default function Home() {
                       "Income",
                     )}
                     {card(
-                      "Total expenses",
+                      "Paid expenses",
                       stats.expense,
                       previous.expense,
                       "var(--red)",
@@ -1889,6 +1967,17 @@ export default function Home() {
                       "var(--text)",
                     )}
                   </div>
+                  <button
+                    className="card credit-outstanding"
+                    onClick={() => navigate("Credit Card Bills")}
+                  >
+                    <span>
+                      Unpaid credit card · {outstandingCredit.length}{" "}
+                      transactions
+                    </span>
+                    <strong>{money(creditTotal(outstandingCredit))}</strong>
+                    <span>Review & pay bills →</span>
+                  </button>
                   <div className="dashboard-grid">
                     <section className="card cash-chart">
                       <div className="card-heading">
@@ -2096,6 +2185,99 @@ export default function Home() {
                   </div>
                 </>
               )}
+              {page === "Loan Tracker" && (
+                <LoanTracker
+                  loans={data.settings.filter(
+                    (loan) =>
+                      loan.kind === "loan" &&
+                      loan.status === "Active" &&
+                      visibleAccounts.some(
+                        (account) => account.id === loan.accountId,
+                      ),
+                  )}
+                  rows={data.transactions}
+                  accounts={data.accounts.filter(
+                    (account) => account.status === "Active",
+                  )}
+                  linkedAccounts={visibleAccounts}
+                  disabled={stale || syncing || saving}
+                  error={error}
+                  onSave={async (record, op) => {
+                    if (staleRef.current) {
+                      await refreshSheet();
+                      if (staleRef.current) return false;
+                    }
+                    return mutate(
+                      "loans",
+                      record.id ? "edit" : "create",
+                      record,
+                      op,
+                    );
+                  }}
+                  onPay={async (record, op) => {
+                    if (staleRef.current) {
+                      await refreshSheet();
+                      if (staleRef.current) return false;
+                    }
+                    const tag = dataRef.current.tags.find(
+                      (tag) =>
+                        tag.status === "Active" && tag.type === "Expense",
+                    );
+                    if (!tag) {
+                      setError(
+                        "Create an expense tag before recording loan payments.",
+                      );
+                      return false;
+                    }
+                    record.tagId ||= tag.id;
+                    return mutate("transactions", "create", record, op);
+                  }}
+                />
+              )}
+              {page === "Credit Card Bills" && (
+                <CreditBills
+                  rows={data.transactions}
+                  accounts={data.accounts.filter(
+                    (account) => account.status === "Active",
+                  )}
+                  destinations={visibleAccounts}
+                  label={(account) =>
+                    `${account.name} · ${accountOwners(
+                      account,
+                      allOwners(data.settings),
+                    )
+                      .map(
+                        (id) => owners.find((owner) => owner.id === id)?.name,
+                      )
+                      .filter(Boolean)
+                      .join(", ")}`
+                  }
+                  disabled={stale || syncing || saving}
+                  error={error}
+                  onPay={async (record, op) => {
+                    if (staleRef.current) {
+                      await refreshSheet();
+                      if (staleRef.current) return false;
+                    }
+                    const tag =
+                      dataRef.current.tags.find(
+                        (tag) =>
+                          tag.status === "Active" && tag.type === "Transfer",
+                      ) ||
+                      dataRef.current.tags.find(
+                        (tag) => tag.status === "Active",
+                      );
+                    if (!tag) {
+                      setError(
+                        "Create an expense tag before saving a bill payment.",
+                      );
+                      return false;
+                    }
+                    record.tagId ||= tag.id;
+                    return await mutate("transactions", "create", record, op);
+                  }}
+                />
+              )}
               {page === "Transactions" && (
                 <section className="card">
                   <div className="card-heading">
@@ -2202,6 +2384,11 @@ export default function Home() {
                           }}
                         >
                           <option value="">All types</option>
+                          <option value="Debit">Debit expenses</option>
+                          <option value="Credit">Credit Card expenses</option>
+                          <option value="CreditPayment">
+                            Credit bill payments
+                          </option>
                           {["Income", "Expense", "Investment", "Transfer"].map(
                             (t) => (
                               <option key={t}>{t}</option>
@@ -2366,7 +2553,7 @@ export default function Home() {
                 </section>
               )}
               {entities[page] && entityPage()}
-              {page === "Accounts & Ledgers" && (
+              {page === "Accounts" && (
                 <section className="owner-section">
                   <div className="section-heading">
                     <div>
@@ -2809,11 +2996,16 @@ export default function Home() {
                     onClick={() =>
                       mutate(
                         "settings",
-                        data.settings.some((row) => row.kind !== "owner")
+                        data.settings.some(
+                          (row) => row.kind !== "owner" && row.kind !== "loan",
+                        )
                           ? "edit"
                           : "create",
                         {
-                          ...data.settings.find((row) => row.kind !== "owner"),
+                          ...data.settings.find(
+                            (row) =>
+                              row.kind !== "owner" && row.kind !== "loan",
+                          ),
                           name: "Household preferences",
                           theme,
                           person,
@@ -3056,6 +3248,32 @@ export default function Home() {
                       }
                       options={["Expense", "Income", "Investment", "Transfer"]}
                     />
+                    {modal.record.type === "Expense" && (
+                      <Select
+                        label="Expense timing"
+                        required
+                        name="expenseMode"
+                        onChange={(
+                          event: React.ChangeEvent<HTMLSelectElement>,
+                        ) =>
+                          setModal({
+                            ...modal,
+                            record: {
+                              ...modal.record,
+                              expenseMode: event.target.value,
+                            },
+                          })
+                        }
+                        value={modal.record.expenseMode || "Debit"}
+                        options={[
+                          {
+                            value: "Debit",
+                            label: "Debit · immediate expense",
+                          },
+                          { value: "Credit", label: "Credit Card · pay later" },
+                        ]}
+                      />
+                    )}
                     <TagSelect
                       label="Expense tag"
                       name="tagId"
@@ -3070,22 +3288,37 @@ export default function Home() {
                       required
                     />
 
-                    <Select
-                      label="Payment method"
-                      name="payment"
-                      value={modal.record.payment}
-                      options={[
-                        "UPI",
-                        "Cash",
-                        "Debit Card",
-                        "Credit Card",
-                        "Bank Transfer",
-                        "Other",
-                      ]}
-                    />
+                    {!(
+                      modal.record.type === "Expense" &&
+                      modal.record.expenseMode === "Credit"
+                    ) && (
+                      <Select
+                        label="Payment method"
+                        name="payment"
+                        value={modal.record.payment}
+                        options={[
+                          "UPI",
+                          "Cash",
+                          "Debit Card",
+                          "Credit Card",
+                          "Bank Transfer",
+                          "Other",
+                        ]}
+                      />
+                    )}
                     <Select
                       label="From account"
                       name="account"
+                      onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                        setModal({
+                          ...modal,
+                          record: {
+                            ...modal.record,
+                            account: event.target.value,
+                            creditCardId: "",
+                          },
+                        })
+                      }
                       value={
                         data.accounts.find(
                           (account) =>
@@ -3110,6 +3343,32 @@ export default function Home() {
                       disabled={modal.record.type !== "Transfer"}
                       required={modal.record.type === "Transfer"}
                     />
+                    {modal.record.type === "Expense" &&
+                      modal.record.expenseMode === "Credit" && (
+                        <>
+                          <Select
+                            key={modal.record.account + "-card"}
+                            label="Credit card"
+                            name="creditCardId"
+                            value={modal.record.creditCardId}
+                            options={(
+                              data.accounts.find(
+                                (account) =>
+                                  account.id === modal.record.account ||
+                                  account.name === modal.record.account,
+                              )?.creditCards || []
+                            ).map((card: any) => ({
+                              value: card.id,
+                              label: card.name,
+                            }))}
+                            required
+                          />
+                          <p className="credit-help">
+                            Manage card names in Accounts → Edit account →
+                            Credit cards.
+                          </p>
+                        </>
+                      )}
                     <Field
                       label="Notes"
                       name="notes"
@@ -3197,6 +3456,9 @@ export default function Home() {
                             "Custom",
                           ]}
                         />
+                        <CreditCardEditor
+                          value={modal.record.creditCards || []}
+                        />
                         <Field
                           label="Opening balance (₹)"
                           name="openingBalance"
@@ -3248,6 +3510,36 @@ export default function Home() {
                             ]}
                           />
                         )}
+                        {modal.entity === "recurring" &&
+                          modal.record.type === "Expense" && (
+                            <Select
+                              label="Expense timing"
+                              required
+                              name="expenseMode"
+                              onChange={(
+                                event: React.ChangeEvent<HTMLSelectElement>,
+                              ) =>
+                                setModal({
+                                  ...modal,
+                                  record: {
+                                    ...modal.record,
+                                    expenseMode: event.target.value,
+                                  },
+                                })
+                              }
+                              value={modal.record.expenseMode || "Debit"}
+                              options={[
+                                {
+                                  value: "Debit",
+                                  label: "Debit · immediate expense",
+                                },
+                                {
+                                  value: "Credit",
+                                  label: "Credit Card · pay later",
+                                },
+                              ]}
+                            />
+                          )}
                         <TagSelect
                           label="Category"
                           name="tagId"
@@ -3294,20 +3586,37 @@ export default function Home() {
                                 "Yearly",
                               ]}
                             />
-                            <Select
-                              label="Payment method"
-                              name="payment"
-                              value={modal.record.payment}
-                              options={[
-                                "UPI",
-                                "Cash",
-                                "Bank Transfer",
-                                "Other",
-                              ]}
-                            />
+                            {!(
+                              modal.record.type === "Expense" &&
+                              modal.record.expenseMode === "Credit"
+                            ) && (
+                              <Select
+                                label="Payment method"
+                                name="payment"
+                                value={modal.record.payment}
+                                options={[
+                                  "UPI",
+                                  "Cash",
+                                  "Bank Transfer",
+                                  "Other",
+                                ]}
+                              />
+                            )}
                             <Select
                               label="From account"
                               name="account"
+                              onChange={(
+                                event: React.ChangeEvent<HTMLSelectElement>,
+                              ) =>
+                                setModal({
+                                  ...modal,
+                                  record: {
+                                    ...modal.record,
+                                    account: event.target.value,
+                                    creditCardId: "",
+                                  },
+                                })
+                              }
                               value={
                                 data.accounts.find(
                                   (account) =>
@@ -3332,6 +3641,32 @@ export default function Home() {
                               disabled={modal.record.type !== "Transfer"}
                               required={modal.record.type === "Transfer"}
                             />
+                            {modal.record.type === "Expense" &&
+                              modal.record.expenseMode === "Credit" && (
+                                <>
+                                  <Select
+                                    key={modal.record.account + "-card"}
+                                    label="Credit card"
+                                    name="creditCardId"
+                                    value={modal.record.creditCardId}
+                                    options={(
+                                      data.accounts.find(
+                                        (account) =>
+                                          account.id === modal.record.account ||
+                                          account.name === modal.record.account,
+                                      )?.creditCards || []
+                                    ).map((card: any) => ({
+                                      value: card.id,
+                                      label: card.name,
+                                    }))}
+                                    required
+                                  />
+                                  <p className="credit-help">
+                                    Manage card names in Accounts → Edit account
+                                    → Credit cards.
+                                  </p>
+                                </>
+                              )}
                             <Field
                               label="Next due date"
                               name="nextDate"
