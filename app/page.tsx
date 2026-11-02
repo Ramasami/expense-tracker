@@ -1,5 +1,6 @@
 "use client";
 import Analytics from "./analytics";
+import AccountBalances from "./account-balances";
 import CreditBills from "./credit-bills";
 import LoanTracker from "./loan-tracker";
 import { isLoanPayment } from "../lib/loans";
@@ -1438,8 +1439,7 @@ export default function Home() {
                       </p>
                     )}
                     <small>
-                      Current balance · opening{" "}
-                      {money(Number(r.openingBalance))}
+                      Ledger balance · opening {money(Number(r.openingBalance))}
                     </small>
                     <button
                       className="text-button"
@@ -1883,6 +1883,11 @@ export default function Home() {
               />
             </div>
           )}
+          <AccountBalances
+            accounts={visibleAccounts}
+            rows={data.transactions}
+            stale={stale}
+          />
           <p className="source-status" role="status">
             {sheetStatus}
             {sheetTime ? " · " + sheetTime : ""}. Save destination: Google
@@ -2168,13 +2173,14 @@ export default function Home() {
                   <div className="available-cash card">
                     <div>
                       <span className="stat-label">
-                        Available cash through {range[1]}
+                        Ledger cash through {range[1]}
                       </span>
                       <strong>{money(available)}</strong>
                       <small>
-                        Known opening balances + income − expenses − investment
-                        contributions. Unassigned records are included in the
-                        combined view.
+                        Calculated from opening balances and recorded movements;
+                        check the confirmed balances above for reconciliation.
+                        Income − expenses − investment contributions. Unassigned
+                        records are included in the combined view.
                       </small>
                     </div>
                     <Wallet size={25} />

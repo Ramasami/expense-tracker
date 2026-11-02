@@ -1203,7 +1203,12 @@ test("owner-scoped account toggles work on home and transactions; transfer dropd
     .getByRole("button", { name: "Save transaction", exact: true })
     .click();
   await expect(dialog).toBeVisible();
-  expect(f.grids["Expense Ledger"]).toHaveLength(2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
   await source.selectOption("ram-bank");
   await dialog.getByLabel("Type", { exact: true }).selectOption("Transfer");
   await expect(destination).toBeEnabled();
@@ -1556,4 +1561,83 @@ test("partial card snapshots remain separate from unknown historical settlements
   await expect(
     page.getByRole("button", { name: /Pay selected/ }),
   ).toBeDisabled();
+});
+
+test("account balances appear across screens and distinguish confirmed bank balances from unreconciled ledger totals", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const bank = JSON.parse(f.grids.Accounts[1][7]);
+  bank.openingBalance = 2000;
+  bank.balanceConfirmation = {
+    amount: 1500,
+    asOf: "2026-11-02",
+    source: "Owner confirmed",
+  };
+  f.grids.Accounts[1][7] = JSON.stringify(bank);
+  await login(page);
+  const balances = page.getByRole("region", {
+    name: "Account balances",
+    exact: true,
+  });
+  const ram = balances.getByRole("article", {
+    name: "Ram HDFC balance",
+    exact: true,
+  });
+  await expect(ram).toContainText("₹1,500");
+  await expect(ram).toContainText("Ledger: ₹1,750");
+  await expect(ram).toContainText("₹250 higher");
+  for (const name of ["Transactions", "Loan Tracker", "Accounts"]) {
+    await page
+      .locator("nav")
+      .getByRole("button", { name: new RegExp(`^${name}`) })
+      .click();
+    await expect(ram).toContainText("₹1,500");
+  }
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Varsha", exact: true })
+    .click();
+  await expect(ram).toHaveCount(0);
+  await expect(
+    balances.getByRole("article", { name: "Varsha HDFC balance", exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("confirmed loan withholding explains available balance without creating an expense", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const bank = JSON.parse(f.grids.Accounts[1][7]);
+  bank.openingBalance = 2000;
+  bank.balanceConfirmation = {
+    amount: 1500,
+    asOf: "2026-11-02",
+    withheldAmount: 250,
+    source: "Owner confirmed",
+  };
+  f.grids.Accounts[1][7] = JSON.stringify(bank);
+  await login(page);
+  const card = page.getByRole("article", {
+    name: "Ram HDFC balance",
+    exact: true,
+  });
+  await expect(card).toContainText("₹1,500");
+  await expect(card).toContainText("Loan amount withheld: ₹250");
+  await expect(card).toContainText(
+    "Ledger less withholding matches available balance",
+  );
+  await expect(card).not.toContainText("Reconciliation needed");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });

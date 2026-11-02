@@ -2347,3 +2347,81 @@ select:disabled {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
+
+.account-balances {
+  margin: 18px 0 24px;
+}
+.account-balances-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.account-balances-heading h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.account-balances-heading small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.account-balances-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.account-balance-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+.account-balance-card h3 {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.account-balance-card strong {
+  font-size: 24px;
+  letter-spacing: -0.5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.account-balance-card small,
+.account-balance-card span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.account-balance-card p {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0;
+}
+.account-balance-card.needs-reconciliation {
+  border-color: #e9b663;
+}
+.balance-difference {
+  color: #a96b12;
+}
+.balance-matched {
+  color: var(--teal);
+}
+@media (max-width: 500px) {
+  .account-balances-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .account-balance-card {
+    padding: 12px;
+  }
+  .account-balance-card strong {
+    font-size: 19px;
+  }
+}
