@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RecordData, money } from "../lib/finance";
 import {
   parseCSV,
@@ -7,6 +7,7 @@ import {
   statementAmount,
   statementDuplicates,
 } from "../lib/statement-import";
+import { analyzeDocuments, scannerStatus } from "../lib/document-scanner";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 type Preview = {
   record: any;
@@ -50,11 +51,57 @@ export default function StatementImport({
     [settlement, setSettlement] = useState("Unknown"),
     [preview, setPreview] = useState<Preview[]>([]),
     [previewPage, setPreviewPage] = useState(0),
+    [mode, setMode] = useState<"csv" | "scan">("csv"),
+    [scanFiles, setScanFiles] = useState<File[]>([]),
+    [scannerConfigured, setScannerConfigured] = useState<boolean | null>(null),
+    [scannerChecking, setScannerChecking] = useState(false),
+    [scannerCheckError, setScannerCheckError] = useState(""),
+    [scanStage, setScanStage] = useState(""),
+    [scanWarnings, setScanWarnings] = useState<string[]>([]),
+    [reviewConfirmed, setReviewConfirmed] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [progress, setProgress] = useState(0),
     [filename, setFilename] = useState("");
   useDialogScrollLock(open);
+  useEffect(() => {
+    if (!open) setScanFiles([]);
+  }, [open]);
+  useEffect(() => setReviewConfirmed(false), [preview]);
+  useEffect(() => {
+    if (!open || mode !== "scan") return;
+    let active = true;
+    setScannerChecking(true);
+    setScannerCheckError("");
+    scannerStatus()
+      .then((status) => {
+        if (active) setScannerConfigured(status.configured);
+      })
+      .catch((e) => {
+        if (active) {
+          setScannerConfigured(null);
+          setScannerCheckError((e as Error).message);
+        }
+      })
+      .finally(() => {
+        if (active) setScannerChecking(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, mode]);
+  async function checkScannerSetup() {
+    setScannerChecking(true);
+    setScannerCheckError("");
+    try {
+      setScannerConfigured((await scannerStatus()).configured);
+    } catch (e) {
+      setScannerConfigured(null);
+      setScannerCheckError((e as Error).message);
+    } finally {
+      setScannerChecking(false);
+    }
+  }
   const target = accounts.find((a) => a.id === (account || accounts[0]?.id));
   const selected = preview.filter((r) => r.selected && !r.done);
   async function read(file?: File) {
@@ -88,6 +135,100 @@ export default function StatementImport({
     } catch (e) {
       setError((e as Error).message);
       setCsv([]);
+    }
+  }
+  async function scan() {
+    if (busy || disabled) return;
+    setBusy(true);
+    setError("");
+    setPreview([]);
+    setReviewConfirmed(false);
+    setScanWarnings([]);
+    try {
+      const result = await analyzeDocuments(
+        scanFiles,
+        tags,
+        setScanStage,
+        scannerConfigured ?? undefined,
+      );
+      const source = crypto.randomUUID();
+      const proposed: Preview[] = result.transactions.map((row, index) => {
+        const needsLink = ["card_payment", "loan_payment"].includes(row.kind);
+        const record: any = {
+          date: row.date || "",
+          description: row.description,
+          amount: row.amount || 0,
+          type: row.type,
+          tagId: tags.some((t) => t.id === row.tagId && t.status === "Active")
+            ? row.tagId
+            : "",
+          account: target?.id || "",
+          expenseMode:
+            row.type === "Expense"
+              ? card
+                ? "Credit"
+                : row.expenseMode
+              : "Debit",
+          creditCardId: card,
+          cardRefund:
+            row.kind === "refund" && (!!card || row.expenseMode === "Credit"),
+          scanKind: row.kind,
+          payment: card ? "Credit Card" : "Bank Transfer",
+          settlementStatus: card && row.type === "Expense" ? settlement : "",
+          statementImport: true,
+          sourceStatementId: `scan-${source}:${index}`,
+          notes: `AI scan · ${scanFiles[row.sourceIndex]?.name || "document"}. ${row.notes}`,
+          scanNeedsLink: needsLink,
+          scanAccountHint: row.accountHint || "",
+          scanCardHint: row.creditCardHint || "",
+          currency: row.currency,
+          confidence: row.confidence,
+        };
+        const error = needsLink
+          ? "Use the loan/card payment screen to link this payment correctly."
+          : row.currency !== "INR"
+            ? "Confirm the currency and enter an INR amount before importing."
+            : !row.date ||
+                !row.amount ||
+                row.type === "Unknown" ||
+                (row.type === "Expense" && record.expenseMode === "Unknown")
+              ? "Review the missing or uncertain fields."
+              : "";
+        return {
+          record,
+          selected:
+            !error &&
+            row.confidence === "high" &&
+            !!record.tagId &&
+            (!(record.expenseMode === "Credit" || record.cardRefund) ||
+              !!record.creditCardId),
+          error,
+          duplicate: false,
+          op: crypto.randomUUID(),
+        };
+      });
+      const duplicates = statementDuplicates(
+        proposed.map((r) => r.record),
+        rows,
+      );
+      setPreview(
+        proposed.map((r, i) => ({
+          ...r,
+          duplicate: duplicates[i],
+          selected: r.selected && !duplicates[i],
+        })),
+      );
+      setScanWarnings(result.warnings);
+      setPreviewPage(0);
+      if (!proposed.length)
+        setError(
+          "No importable transactions were found. Check the warnings or enter the records manually.",
+        );
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+      setScanStage("");
     }
   }
   function build() {
@@ -171,7 +312,8 @@ export default function StatementImport({
       })),
     );
   }
-  function edit(index: number, key: string, value: string) {
+  function edit(index: number, key: string, value: string | boolean) {
+    setReviewConfirmed(false);
     setPreview((items) => {
       const next = items.map((item, i) =>
         i === index
@@ -197,7 +339,13 @@ export default function StatementImport({
     });
   }
   async function commit() {
-    if (busy || disabled || !selected.length) return;
+    if (
+      busy ||
+      disabled ||
+      !selected.length ||
+      (mode === "scan" && !reviewConfirmed)
+    )
+      return;
     setBusy(true);
     setError("");
     setProgress(0);
@@ -205,9 +353,48 @@ export default function StatementImport({
       let count = 0;
       for (const item of selected) {
         const r = { ...item.record, importDuplicateConfirmed: item.duplicate };
-        if (card) {
-          r.cardRefund = r.type === "Income";
+        if (r.type !== "Income") r.cardRefund = false;
+        if (r.creditCardId) {
+          if (mode === "csv") r.cardRefund = r.type === "Income";
           r.settlementStatus = r.type === "Expense" ? settlement : "";
+        }
+        if (
+          mode === "scan" &&
+          r.type === "Expense" &&
+          !["Debit", "Credit"].includes(r.expenseMode)
+        ) {
+          setError(
+            "Confirm debit or credit-card timing for each selected expense.",
+          );
+          break;
+        }
+        if (
+          mode === "scan" &&
+          ((r.type === "Expense" && r.expenseMode === "Credit") ||
+            r.cardRefund) &&
+          !r.creditCardId
+        ) {
+          setError(
+            "Choose the correct credit card for each selected card purchase or refund.",
+          );
+          break;
+        }
+        if (
+          r.type === "Transfer" &&
+          (!r.toAccount || r.toAccount === r.account)
+        ) {
+          setError("Choose two different accounts for each selected transfer.");
+          break;
+        }
+        if (mode === "scan" && (r.scanNeedsLink || r.currency !== "INR")) {
+          setError(
+            "Review currency and use linked payment screens for card or loan repayments.",
+          );
+          break;
+        }
+        if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type)) {
+          setError("Choose a transaction type for every selected row.");
+          break;
         }
         if (
           !r.date ||
@@ -268,16 +455,67 @@ export default function StatementImport({
               </button>
             </div>
             <div className="feature-body">
+              <div className="pill-options" aria-label="Statement input mode">
+                <button
+                  type="button"
+                  aria-pressed={mode === "csv"}
+                  disabled={busy}
+                  onClick={() => {
+                    setMode("csv");
+                    setPreview([]);
+                    setError("");
+                  }}
+                >
+                  CSV statement
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mode === "scan"}
+                  disabled={busy}
+                  onClick={() => {
+                    setMode("scan");
+                    setPreview([]);
+                    setError("");
+                  }}
+                >
+                  Scan bills & statements
+                </button>
+              </div>
               <fieldset className="form-grid" disabled={busy || disabled}>
-                <label className="field">
-                  Statement CSV
-                  <input
-                    aria-label="Statement CSV"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(e) => void read(e.target.files?.[0])}
-                  />
-                </label>
+                {mode === "csv" ? (
+                  <>
+                    <label className="field">
+                      Statement CSV
+                      <input
+                        aria-label="Statement CSV"
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={(e) => void read(e.target.files?.[0])}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label className="field scan-upload">
+                    Images or PDFs
+                    <input
+                      aria-label="Scan documents"
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      onChange={(event) => {
+                        setScanFiles(Array.from(event.target.files || []));
+                        setPreview([]);
+                        setReviewConfirmed(false);
+                        setError("");
+                      }}
+                    />
+                    <small>
+                      {scanFiles.length
+                        ? scanFiles.map((file) => file.name).join(" · ")
+                        : "Choose up to 5 bills, receipts or statement screenshots"}
+                    </small>
+                  </label>
+                )}
                 <label className="field">
                   Import into account
                   <select
@@ -353,7 +591,7 @@ export default function StatementImport({
                   </label>
                 )}
               </fieldset>
-              {csv.length > 0 && (
+              {mode === "csv" && csv.length > 0 && (
                 <details open={!preview.length} className="feature-details">
                   <summary>Match statement columns</summary>
                   <fieldset
@@ -399,6 +637,76 @@ export default function StatementImport({
                   </button>
                 </details>
               )}
+              {mode === "scan" && (
+                <div className="scan-intro">
+                  <p>
+                    Analyze selected documents with OpenAI, then review the
+                    proposed transactions. Nothing is written to your Sheet
+                    until you confirm.
+                  </p>
+                  <small>
+                    Documents are sent to OpenAI through the authenticated
+                    Google service. The API key stays on the server. Originals
+                    are not saved as receipts automatically.
+                  </small>
+                  <button
+                    className="primary"
+                    disabled={
+                      busy || disabled || scannerChecking || !scanFiles.length
+                    }
+                    onClick={() => void scan()}
+                  >
+                    {busy && scanStage ? "Analyzing…" : "Analyze with OpenAI"}
+                  </button>
+                  <p role="status">
+                    {scannerChecking
+                      ? "Checking scanner configuration…"
+                      : scannerConfigured === true
+                        ? "Configured · API key saved securely on the server. No further setup needed."
+                        : scannerConfigured === false
+                          ? "Scanner not configured yet."
+                          : scannerCheckError}
+                  </p>
+                  {scannerConfigured !== true && (
+                    <button
+                      className="secondary"
+                      disabled={scannerChecking || busy}
+                      onClick={() => void checkScannerSetup()}
+                    >
+                      Check setup again
+                    </button>
+                  )}
+                  {scannerConfigured === false && (
+                    <details>
+                      <summary>Scanner setup</summary>
+                      <p>
+                        Add OPENAI_API_KEY in the Apps Script project’s Script
+                        properties once. It remains saved across refreshes,
+                        devices, sign-ins and deployments until you remove or
+                        replace it. API billing is separate from ChatGPT. Never
+                        paste the key into this website or repository.
+                      </p>
+                      <a
+                        href="https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open scanner service setup ↗
+                      </a>
+                    </details>
+                  )}
+                </div>
+              )}
+              {scanWarnings.length > 0 && mode === "scan" && (
+                <details className="scan-warnings" open>
+                  <summary>Review notes ({scanWarnings.length})</summary>
+                  <ul>
+                    {scanWarnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               {!!preview.length && (
                 <>
                   <div className="import-summary">
@@ -424,7 +732,11 @@ export default function StatementImport({
                           selected.length > 0 &&
                           selected.length ===
                             preview.filter(
-                              (r) => !r.done && !r.duplicate && !r.error,
+                              (r) =>
+                                !r.done &&
+                                !r.duplicate &&
+                                !r.error &&
+                                !r.record.scanNeedsLink,
                             ).length
                         }
                         onChange={(e) =>
@@ -477,7 +789,12 @@ export default function StatementImport({
                               <input
                                 aria-label={`Import row ${i + 1}`}
                                 type="checkbox"
-                                disabled={busy || item.done || item.attempted}
+                                disabled={
+                                  busy ||
+                                  item.done ||
+                                  item.attempted ||
+                                  item.record.scanNeedsLink
+                                }
                                 checked={item.selected}
                                 onChange={(e) =>
                                   setPreview((items) =>
@@ -500,7 +817,12 @@ export default function StatementImport({
                             </label>
                             <fieldset
                               className="form-grid"
-                              disabled={busy || item.done || item.attempted}
+                              disabled={
+                                busy ||
+                                item.done ||
+                                item.attempted ||
+                                item.record.scanNeedsLink
+                              }
                             >
                               <input
                                 aria-label={`Row ${i + 1} date`}
@@ -534,6 +856,11 @@ export default function StatementImport({
                                   edit(i, "type", e.target.value)
                                 }
                               >
+                                {item.record.type === "Unknown" && (
+                                  <option value="Unknown">
+                                    Choose transaction type
+                                  </option>
+                                )}
                                 {(card
                                   ? ["Expense", "Income"]
                                   : [
@@ -546,42 +873,127 @@ export default function StatementImport({
                                   <option key={t}>{t}</option>
                                 ))}
                               </select>
+                              {(mode === "scan" ||
+                                item.record.type === "Transfer") && (
+                                <select
+                                  aria-label={`Row ${i + 1} from account`}
+                                  value={item.record.account}
+                                  onChange={(e) => {
+                                    edit(i, "account", e.target.value);
+                                    if (mode === "scan")
+                                      edit(i, "creditCardId", "");
+                                  }}
+                                >
+                                  {accounts.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                               {item.record.type === "Transfer" && (
-                                <>
-                                  <select
-                                    aria-label={`Row ${i + 1} from account`}
-                                    value={item.record.account}
-                                    onChange={(e) =>
-                                      edit(i, "account", e.target.value)
-                                    }
-                                  >
-                                    {accounts.map((a) => (
+                                <select
+                                  aria-label={`Row ${i + 1} to account`}
+                                  value={item.record.toAccount || ""}
+                                  onChange={(e) =>
+                                    edit(i, "toAccount", e.target.value)
+                                  }
+                                >
+                                  <option value="">
+                                    Choose destination account
+                                  </option>
+                                  {accounts
+                                    .filter((a) => a.id !== item.record.account)
+                                    .map((a) => (
                                       <option key={a.id} value={a.id}>
                                         {a.name}
                                       </option>
                                     ))}
-                                  </select>
+                                </select>
+                              )}
+                              {mode === "scan" &&
+                                item.record.type === "Expense" && (
                                   <select
-                                    aria-label={`Row ${i + 1} to account`}
-                                    value={item.record.toAccount || ""}
+                                    aria-label={`Row ${i + 1} expense timing`}
+                                    value={item.record.expenseMode || "Unknown"}
                                     onChange={(e) =>
-                                      edit(i, "toAccount", e.target.value)
+                                      edit(i, "expenseMode", e.target.value)
                                     }
                                   >
-                                    <option value="">
-                                      Choose destination account
+                                    <option value="Unknown">
+                                      Confirm debit / credit card
                                     </option>
-                                    {accounts
-                                      .filter(
-                                        (a) => a.id !== item.record.account,
-                                      )
-                                      .map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.name}
-                                        </option>
-                                      ))}
+                                    <option value="Debit">
+                                      Debit · immediate expense
+                                    </option>
+                                    <option value="Credit">
+                                      Credit card · deferred expense
+                                    </option>
                                   </select>
-                                </>
+                                )}
+                              {mode === "scan" &&
+                                item.record.scanKind === "refund" && (
+                                  <select
+                                    aria-label={`Row ${i + 1} refund destination`}
+                                    value={
+                                      item.record.cardRefund ? "card" : "bank"
+                                    }
+                                    onChange={(event) => {
+                                      edit(
+                                        i,
+                                        "cardRefund",
+                                        event.target.value === "card",
+                                      );
+                                      if (event.target.value === "bank")
+                                        edit(i, "creditCardId", "");
+                                    }}
+                                  >
+                                    <option value="bank">
+                                      Refund into bank account
+                                    </option>
+                                    <option value="card">
+                                      Refund into credit card
+                                    </option>
+                                  </select>
+                                )}
+                              {mode === "scan" &&
+                                (item.record.expenseMode === "Credit" ||
+                                  item.record.cardRefund) && (
+                                  <select
+                                    aria-label={`Row ${i + 1} credit card`}
+                                    value={item.record.creditCardId || ""}
+                                    onChange={(e) =>
+                                      edit(i, "creditCardId", e.target.value)
+                                    }
+                                  >
+                                    <option value="">Choose credit card</option>
+                                    {(
+                                      accounts.find(
+                                        (a) => a.id === item.record.account,
+                                      )?.creditCards || []
+                                    ).map((c: any) => (
+                                      <option key={c.id} value={c.id}>
+                                        {c.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              {mode === "scan" && (
+                                <select
+                                  aria-label={`Row ${i + 1} currency`}
+                                  value={item.record.currency || "Unknown"}
+                                  onChange={(event) =>
+                                    edit(i, "currency", event.target.value)
+                                  }
+                                >
+                                  <option value="Unknown">
+                                    Confirm currency
+                                  </option>
+                                  <option value="INR">INR · ₹</option>
+                                  <option value="Other">
+                                    Other · convert manually
+                                  </option>
+                                </select>
                               )}
                               <select
                                 aria-label={`Row ${i + 1} tag`}
@@ -600,6 +1012,26 @@ export default function StatementImport({
                                   ))}
                               </select>
                             </fieldset>
+                            {mode === "scan" && (
+                              <small>
+                                AI confidence estimate: {item.record.confidence}
+                                . Verify against the original document.
+                              </small>
+                            )}
+                            {mode === "scan" &&
+                              (item.record.scanAccountHint ||
+                                item.record.scanCardHint) && (
+                                <small>
+                                  Detected in document:{" "}
+                                  {[
+                                    item.record.scanAccountHint,
+                                    item.record.scanCardHint,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                  . Confirm the account/card choices above.
+                                </small>
+                              )}
                             {item.error && (
                               <small>
                                 Source row needs review: {item.error}
@@ -629,13 +1061,36 @@ export default function StatementImport({
                 </div>
               )}
             </div>
+            {mode === "scan" && preview.length > 0 && (
+              <label className="scan-confirm">
+                <input
+                  type="checkbox"
+                  checked={reviewConfirmed}
+                  disabled={busy || disabled}
+                  onChange={(event) => setReviewConfirmed(event.target.checked)}
+                />
+                I reviewed the selected entries and confirm these changes to
+                Google Sheets.
+              </label>
+            )}
+            {busy && scanStage && (
+              <div role="status" className="scan-progress">
+                <progress />
+                {scanStage}
+              </div>
+            )}
             <div className="form-footer">
               <button disabled={busy} onClick={() => setOpen(false)}>
                 Close
               </button>
               <button
                 className="primary"
-                disabled={disabled || busy || !selected.length}
+                disabled={
+                  disabled ||
+                  busy ||
+                  !selected.length ||
+                  (mode === "scan" && !reviewConfirmed)
+                }
                 onClick={() => void commit()}
               >
                 {busy

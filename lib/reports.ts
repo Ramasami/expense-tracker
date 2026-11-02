@@ -1,3 +1,4 @@
+import { budgetTagIds } from "./planning";
 import { isLoanPayment } from "./loans";
 import { isCredit, isCreditPayment } from "./credit";
 import { belongsToOwner } from "./owners";
@@ -86,7 +87,7 @@ export function budgetSpent(b: RecordData, rows: RecordData[]) {
       (t) =>
         t.status !== "Deleted" &&
         t.type === "Expense" &&
-        (!b.tagId || t.tagId === b.tagId) &&
+        (!budgetTagIds(b).length || budgetTagIds(b).includes(t.tagId)) &&
         (!b.person || b.person === "Combined" || t.person === b.person) &&
         (!b.month || String(t.date).startsWith(b.month)),
     )

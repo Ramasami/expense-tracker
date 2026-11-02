@@ -68,6 +68,13 @@ export function reconcile(
     difference: Math.round((statementBalance - ledger) * 100) / 100,
   };
 }
+export function budgetTagIds(budget: Partial<RecordData>): string[] {
+  return Array.isArray(budget.tagIds)
+    ? budget.tagIds
+    : budget.tagId
+      ? [budget.tagId]
+      : [];
+}
 export function monthlySpending(
   budget: RecordData,
   rows: RecordData[],
@@ -85,7 +92,8 @@ export function monthlySpending(
             String(row.date).startsWith(month) &&
             (!budget.accountId || row.account === budget.accountId) &&
             (!allowedAccounts || allowedAccounts.includes(row.account)) &&
-            (!budget.tagId || row.tagId === budget.tagId) &&
+            (!budgetTagIds(budget).length ||
+              budgetTagIds(budget).includes(row.tagId)) &&
             (allowedAccounts ||
               !budget.person ||
               budget.person === "Combined" ||

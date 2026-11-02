@@ -1,4 +1,5 @@
 "use client";
+import ListControls from "./list-controls";
 import { useEffect, useState } from "react";
 import { RecordData, money } from "../lib/finance";
 import { allocateCredit, creditTotal, unpaidCredit } from "../lib/credit";
@@ -25,6 +26,8 @@ export default function CreditBills({
 }: Props) {
   const [destination, setDestination] = useState("");
   const [cardId, setCardId] = useState("");
+  const [query, setQuery] = useState(""),
+    [listSort, setListSort] = useState("oldest");
   const [cycleFilter, setCycleFilter] = useState("All");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [excluded, setExcluded] = useState<string[]>([]);
@@ -55,14 +58,49 @@ export default function CreditBills({
   const allCharges = unpaidCredit(rows, destination, true).filter(
     (row) => !cardId || row.creditCardId === cardId,
   );
-  const charges = allCharges.filter(
-    (row) =>
-      cycleFilter === "All" ||
-      billingCycle(
-        row.date,
-        accountCards.find((card: any) => card.id === row.creditCardId),
-      )?.status === cycleFilter,
-  );
+  const charges = allCharges
+    .filter(
+      (row) =>
+        cycleFilter === "All" ||
+        billingCycle(
+          row.date,
+          accountCards.find((card: any) => card.id === row.creditCardId),
+        )?.status === cycleFilter,
+    )
+    .filter(
+      (row) =>
+        !query ||
+        `${row.description} ${row.creditCardName || ""} ${row.date}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+    )
+    .sort((a, b) =>
+      listSort === "amount"
+        ? b.amount - a.amount
+        : listSort === "newest"
+          ? b.date.localeCompare(a.date)
+          : listSort === "merchant"
+            ? a.description.localeCompare(b.description)
+            : listSort === "due"
+              ? String(
+                  billingCycle(
+                    a.date,
+                    accountCards.find(
+                      (card: any) => card.id === a.creditCardId,
+                    ),
+                  )?.due || "9999",
+                ).localeCompare(
+                  String(
+                    billingCycle(
+                      b.date,
+                      accountCards.find(
+                        (card: any) => card.id === b.creditCardId,
+                      ),
+                    )?.due || "9999",
+                  ),
+                )
+              : a.date.localeCompare(b.date),
+    );
   const selected = charges.filter((row) => !excluded.includes(row.id));
   const unknownSelected = selected.filter(
     (row) => row.settlementStatus === "Unknown",
@@ -346,6 +384,20 @@ export default function CreditBills({
                 Show all cycles
               </button>
             )}
+            <ListControls
+              label="card charges"
+              search={query}
+              onSearch={setQuery}
+              sort={listSort}
+              onSort={setListSort}
+              sorts={[
+                ["oldest", "Oldest first"],
+                ["newest", "Newest first"],
+                ["due", "Earliest due first"],
+                ["amount", "Largest amount first"],
+                ["merchant", "Merchant A–Z"],
+              ]}
+            />
             {summary}
             {list}
             {unknownSelected.length > 0 && (

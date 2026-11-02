@@ -1,4 +1,5 @@
 "use client";
+import ListControls from "./list-controls";
 import { useState } from "react";
 import { RecordData, money } from "../lib/finance";
 import LoanForecast from "./loan-forecast";
@@ -32,6 +33,9 @@ export default function LoanTracker({
     op: string;
     pending?: any;
   } | null>(null);
+  const [query, setQuery] = useState(""),
+    [listSort, setListSort] = useState("balance"),
+    [accountFilter, setAccountFilter] = useState("");
   const [saving, setSaving] = useState(false),
     [failed, setFailed] = useState(false);
   useDialogScrollLock(!!modal);
@@ -158,121 +162,165 @@ export default function LoanTracker({
           Add loan
         </button>
       </div>
+      <ListControls
+        label="loans"
+        search={query}
+        onSearch={setQuery}
+        sort={listSort}
+        onSort={setListSort}
+        sorts={[
+          ["balance", "Largest remaining principal"],
+          ["name", "Name A–Z"],
+          ["rate", "Highest rate first"],
+        ]}
+      >
+        <label className="field">
+          Loan account
+          <select
+            aria-label="Loan account filter"
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+          >
+            <option value="">All accounts</option>
+            {linkedAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </ListControls>
       <div className="entity-grid">
-        {loans.map((loan) => {
-          const summary = loanSummary(loan, rows);
-          return (
-            <article className="card loan-card" key={loan.id}>
-              <h3>{loan.name}</h3>
-              <p>
-                {
-                  accounts.find((account) => account.id === loan.accountId)
-                    ?.name
-                }{" "}
-                · {Number(loan.interestRate)}% annual interest
-              </p>
-              {loan.allocationInferred && (
-                <details className="statement-note">
-                  <summary>Payment allocation assumptions</summary>
-                  <p>
-                    Payment allocation inferred using interest-first repayment.
-                    Interest-paid totals cover the supplied history only (from
-                    November 2025); earlier interest is unknown. The earliest
-                    split and switch-fee allocation are assumptions; original
-                    lender entries are retained below.
-                  </p>
-                </details>
-              )}
-              <span className="stat-label">
-                Remaining principal
-                {loan.allocationInferred ? " (inferred)" : ""}
-              </span>
-              <strong className="entity-amount">
-                {money(summary.remainingPrincipal)}
-              </strong>
-              <dl className="loan-details">
-                <div>
-                  <dt>Original principal</dt>
-                  <dd>{money(loan.principal)}</dd>
-                </div>
-                <div>
-                  <dt>Principal already paid</dt>
-                  <dd>{money(summary.principalPaid)}</dd>
-                </div>
-                <div>
-                  <dt>
-                    Interest already paid
-                    {loan.allocationInferred ? " (inferred, shown period)" : ""}
-                  </dt>
-                  <dd>{money(summary.interestPaid)}</dd>
-                </div>
-                <div>
-                  <dt>Total repaid</dt>
-                  <dd>{money(summary.totalPaid)}</dd>
-                </div>
-              </dl>
-              {loan.statementSnapshot && (
-                <details className="statement-snapshot">
-                  <summary>
-                    Lender statement ·{" "}
-                    {money(loan.statementSnapshot.outstanding)}
-                  </summary>
-                  <small>
-                    As of {loan.statementSnapshot.asOf}; includes{" "}
-                    {money(loan.statementSnapshot.accruedInterest)} interest
-                    charged after the last payment.
-                  </small>
-                  <p>
-                    Sanctioned {money(loan.sanctionedAmount)} · Disbursed{" "}
-                    {money(loan.principal)} · To be disbursed{" "}
-                    {money(loan.undisbursedAmount)}
-                    <br />
-                    Scheduled EMI {money(loan.scheduledEmi)} on day{" "}
-                    {loan.emiDay} · Remaining tenure{" "}
-                    {loan.remainingTenureMonths} months
-                    <br />
-                    Fees paid {money(summary.feesPaid)}
-                  </p>
-                  <details>
-                    <summary>Original lender history</summary>
-                    <div className="loan-history">
-                      {(loan.statementHistory || []).map(
-                        (event: any, index: number) => (
-                          <p key={index}>
-                            {event.date} ·{" "}
-                            {event.kind === "repayment"
-                              ? "Payment"
-                              : event.kind === "interestCharged"
-                                ? "Interest charged"
-                                : "Fee charged"}{" "}
-                            {money(event.amount)} · Balance{" "}
-                            {money(event.balanceAfter)}
-                          </p>
-                        ),
-                      )}
-                    </div>
+        {loans
+          .filter(
+            (loan) =>
+              (!accountFilter || loan.accountId === accountFilter) &&
+              (!query || loan.name.toLowerCase().includes(query.toLowerCase())),
+          )
+          .sort((a, b) =>
+            listSort === "name"
+              ? a.name.localeCompare(b.name)
+              : listSort === "rate"
+                ? Number(b.interestRate) - Number(a.interestRate)
+                : loanSummary(b, rows).remainingPrincipal -
+                  loanSummary(a, rows).remainingPrincipal,
+          )
+          .map((loan) => {
+            const summary = loanSummary(loan, rows);
+            return (
+              <article className="card loan-card" key={loan.id}>
+                <h3>{loan.name}</h3>
+                <p>
+                  {
+                    accounts.find((account) => account.id === loan.accountId)
+                      ?.name
+                  }{" "}
+                  · {Number(loan.interestRate)}% annual interest
+                </p>
+                {loan.allocationInferred && (
+                  <details className="statement-note">
+                    <summary>Payment allocation assumptions</summary>
+                    <p>
+                      Payment allocation inferred using interest-first
+                      repayment. Interest-paid totals cover the supplied history
+                      only (from November 2025); earlier interest is unknown.
+                      The earliest split and switch-fee allocation are
+                      assumptions; original lender entries are retained below.
+                    </p>
                   </details>
-                </details>
-              )}
-              <LoanForecast loan={loan} rows={rows} />
-              <div className="row-actions">
-                <button disabled={disabled} onClick={() => openLoan(loan)}>
-                  Edit loan
-                </button>
-                <button disabled={disabled} onClick={() => onDelete(loan)}>
-                  Delete loan
-                </button>
-                <button
-                  className="primary"
-                  disabled={disabled}
-                  onClick={() => openPay(loan)}
-                >
-                  Pay loan
-                </button>
-              </div>
-            </article>
-          );
-        })}
+                )}
+                <span className="stat-label">
+                  Remaining principal
+                  {loan.allocationInferred ? " (inferred)" : ""}
+                </span>
+                <strong className="entity-amount">
+                  {money(summary.remainingPrincipal)}
+                </strong>
+                <dl className="loan-details">
+                  <div>
+                    <dt>Original principal</dt>
+                    <dd>{money(loan.principal)}</dd>
+                  </div>
+                  <div>
+                    <dt>Principal already paid</dt>
+                    <dd>{money(summary.principalPaid)}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      Interest already paid
+                      {loan.allocationInferred
+                        ? " (inferred, shown period)"
+                        : ""}
+                    </dt>
+                    <dd>{money(summary.interestPaid)}</dd>
+                  </div>
+                  <div>
+                    <dt>Total repaid</dt>
+                    <dd>{money(summary.totalPaid)}</dd>
+                  </div>
+                </dl>
+                {loan.statementSnapshot && (
+                  <details className="statement-snapshot">
+                    <summary>
+                      Lender statement ·{" "}
+                      {money(loan.statementSnapshot.outstanding)}
+                    </summary>
+                    <small>
+                      As of {loan.statementSnapshot.asOf}; includes{" "}
+                      {money(loan.statementSnapshot.accruedInterest)} interest
+                      charged after the last payment.
+                    </small>
+                    <p>
+                      Sanctioned {money(loan.sanctionedAmount)} · Disbursed{" "}
+                      {money(loan.principal)} · To be disbursed{" "}
+                      {money(loan.undisbursedAmount)}
+                      <br />
+                      Scheduled EMI {money(loan.scheduledEmi)} on day{" "}
+                      {loan.emiDay} · Remaining tenure{" "}
+                      {loan.remainingTenureMonths} months
+                      <br />
+                      Fees paid {money(summary.feesPaid)}
+                    </p>
+                    <details>
+                      <summary>Original lender history</summary>
+                      <div className="loan-history">
+                        {(loan.statementHistory || []).map(
+                          (event: any, index: number) => (
+                            <p key={index}>
+                              {event.date} ·{" "}
+                              {event.kind === "repayment"
+                                ? "Payment"
+                                : event.kind === "interestCharged"
+                                  ? "Interest charged"
+                                  : "Fee charged"}{" "}
+                              {money(event.amount)} · Balance{" "}
+                              {money(event.balanceAfter)}
+                            </p>
+                          ),
+                        )}
+                      </div>
+                    </details>
+                  </details>
+                )}
+                <LoanForecast loan={loan} rows={rows} />
+                <div className="row-actions">
+                  <button disabled={disabled} onClick={() => openLoan(loan)}>
+                    Edit loan
+                  </button>
+                  <button disabled={disabled} onClick={() => onDelete(loan)}>
+                    Delete loan
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={disabled}
+                    onClick={() => openPay(loan)}
+                  >
+                    Pay loan
+                  </button>
+                </div>
+              </article>
+            );
+          })}
       </div>
       {!loans.length && (
         <section className="card empty">

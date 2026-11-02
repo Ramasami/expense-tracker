@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { RecordData, money } from "../lib/finance";
 import { accountOwners } from "../lib/owners";
-import { monthlySpending, todayIST } from "../lib/planning";
+import BudgetTagPicker from "./budget-tag-picker";
+import { budgetTagIds, monthlySpending, todayIST } from "../lib/planning";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 export default function MonthlyBudgets({
   budgets,
@@ -28,7 +29,11 @@ export default function MonthlyBudgets({
   const [month, setMonth] = useState(todayIST().slice(0, 7)),
     [modal, setModal] = useState<any>(null),
     [busy, setBusy] = useState(false),
-    [failed, setFailed] = useState(false);
+    [failed, setFailed] = useState(false),
+    [validation, setValidation] = useState(""),
+    [query, setQuery] = useState(""),
+    [tagFilter, setTagFilter] = useState(""),
+    [sort, setSort] = useState("usage");
   useDialogScrollLock(!!modal);
   const shown = budgets.filter(
     (b) =>
@@ -38,7 +43,16 @@ export default function MonthlyBudgets({
         b.person === "Combined" ||
         person === "Combined" ||
         b.person === person) &&
-      (!b.accountId || accounts.some((a) => a.id === b.accountId)),
+      (!b.accountId || accounts.some((a) => a.id === b.accountId)) &&
+      (!query ||
+        `${b.name} ${budgetTagIds(b)
+          .map((id) => tags.find((t) => t.id === id)?.name || "")
+          .join(" ")}`
+          .toLowerCase()
+          .includes(query.toLowerCase())) &&
+      (!tagFilter ||
+        !budgetTagIds(b).length ||
+        budgetTagIds(b).includes(tagFilter)),
   );
   const allowedFor = (b: RecordData) =>
     accounts
@@ -51,6 +65,18 @@ export default function MonthlyBudgets({
           ),
       )
       .map((a) => a.id);
+  shown.sort((a, b) =>
+    sort === "name"
+      ? a.name.localeCompare(b.name)
+      : sort === "remaining"
+        ? a.amount -
+          monthlySpending(a, rows, month, allowedFor(a)) -
+          (b.amount - monthlySpending(b, rows, month, allowedFor(b)))
+        : sort === "limit"
+          ? b.amount - a.amount
+          : monthlySpending(b, rows, month, allowedFor(b)) / Number(b.amount) -
+            monthlySpending(a, rows, month, allowedFor(a)) / Number(a.amount),
+  );
   const total = shown.reduce((s, b) => s + Number(b.amount), 0);
   const spent = shown.reduce(
     (s, b) => s + monthlySpending(b, rows, month, allowedFor(b)),
@@ -58,6 +84,7 @@ export default function MonthlyBudgets({
   );
   function open(record?: RecordData) {
     setFailed(false);
+    setValidation("");
     setModal({
       record: record || {
         name: "",
@@ -77,6 +104,18 @@ export default function MonthlyBudgets({
       ...modal.record,
       ...Object.fromEntries(new FormData(e.currentTarget)),
     };
+    if (!modal.pending) {
+      const form = new FormData(e.currentTarget);
+      record.tagIds =
+        record.tagScope === "selected" ? form.getAll("tagIds").map(String) : [];
+      record.tagId = "";
+      if (record.tagScope === "selected" && !record.tagIds.length) {
+        setValidation(
+          "Choose at least one expense tag, or choose All expense tags.",
+        );
+        return;
+      }
+    }
     record.amount = Number(record.amount);
     record.month = record.repeat === "on" ? "" : record.month;
     delete record.repeat;
@@ -132,6 +171,50 @@ export default function MonthlyBudgets({
       <p className="credit-help">
         Overlapping budgets count the same purchase in each matching limit.
       </p>
+      <div className="list-tools">
+        <input
+          aria-label="Search budgets"
+          type="search"
+          placeholder="Search budgets or tags"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <details>
+          <summary>Sort & filter</summary>
+          <div className="form-grid">
+            <label className="field">
+              Sort budgets
+              <select
+                aria-label="Sort budgets"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                <option value="usage">Highest usage first</option>
+                <option value="name">Name A–Z</option>
+                <option value="remaining">Least remaining first</option>
+                <option value="limit">Largest limit first</option>
+              </select>
+            </label>
+            <label className="field">
+              Budget tag filter
+              <select
+                aria-label="Budget tag filter"
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+              >
+                <option value="">All tags</option>
+                {tags
+                  .filter((t) => t.type === "Expense" && t.status === "Active")
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+        </details>
+      </div>
       <div className="entity-grid">
         {shown.map((b) => {
           const used = monthlySpending(b, rows, month, allowedFor(b)),
@@ -162,7 +245,14 @@ export default function MonthlyBudgets({
               </p>
               <small>
                 {b.month || "Repeats monthly"} ·{" "}
-                {tags.find((t) => t.id === b.tagId)?.name || "All expense tags"}{" "}
+                {budgetTagIds(b).length
+                  ? budgetTagIds(b)
+                      .map(
+                        (id) =>
+                          tags.find((t) => t.id === id)?.name || "Unknown tag",
+                      )
+                      .join(", ")
+                  : "All expense tags"}{" "}
                 ·{" "}
                 {accounts.find((a) => a.id === b.accountId)?.name ||
                   "All selected owner accounts"}
@@ -233,21 +323,7 @@ export default function MonthlyBudgets({
                     defaultValue={modal.record.amount}
                   />
                 </label>
-                <label className="field">
-                  Expense tag
-                  <select name="tagId" defaultValue={modal.record.tagId}>
-                    <option value="">All expense tags</option>
-                    {tags
-                      .filter(
-                        (t) => t.status === "Active" && t.type === "Expense",
-                      )
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <BudgetTagPicker budget={modal.record} tags={tags} />
                 <label className="field">
                   Budget account
                   <select
@@ -280,6 +356,7 @@ export default function MonthlyBudgets({
                   Repeat every month
                 </label>
               </fieldset>
+              {validation && <p role="alert">{validation}</p>}
               {failed && (
                 <p role="alert">Save not confirmed. Retry the same budget.</p>
               )}

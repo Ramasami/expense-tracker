@@ -1,4 +1,5 @@
 "use client";
+import ListControls from "./list-controls";
 import { useState } from "react";
 import { Snapshot, RecordData, money } from "../lib/finance";
 const groups: Record<string, string> = {
@@ -22,6 +23,8 @@ export default function Recovery({
   onOpen: () => void;
   onRestore: (entity: string, row: RecordData, op: string) => Promise<boolean>;
 }) {
+  const [listSort, setListSort] = useState("newest"),
+    [statusFilter, setStatusFilter] = useState("");
   const [entity, setEntity] = useState("transactions"),
     [search, setSearch] = useState(""),
     [message, setMessage] = useState(""),
@@ -30,12 +33,21 @@ export default function Recovery({
     .filter(
       (r) =>
         ["Deleted", "Archived"].includes(r.status) &&
+        (!statusFilter || r.status === statusFilter) &&
         (!search ||
           `${r.name || r.description} ${r.updatedBy || ""}`
             .toLowerCase()
             .includes(search.toLowerCase())),
     )
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    .sort((a, b) =>
+      listSort === "name"
+        ? String(a.name || a.description).localeCompare(
+            String(b.name || b.description),
+          )
+        : listSort === "oldest"
+          ? String(a.updatedAt).localeCompare(String(b.updatedAt))
+          : String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    );
   async function restore(row: RecordData) {
     setBusy(row.id);
     try {
@@ -60,6 +72,31 @@ export default function Recovery({
         <small>Restore records without losing their history</small>
       </summary>
       <div className="feature-body">
+        <ListControls
+          label="deleted records"
+          search={search}
+          onSearch={setSearch}
+          sort={listSort}
+          onSort={setListSort}
+          sorts={[
+            ["newest", "Most recently changed"],
+            ["oldest", "Oldest changes first"],
+            ["name", "Name A–Z"],
+          ]}
+        >
+          <label className="field">
+            Record status
+            <select
+              aria-label="Recovery status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">Deleted and archived</option>
+              <option value="Deleted">Deleted</option>
+              <option value="Archived">Archived</option>
+            </select>
+          </label>
+        </ListControls>
         <div className="filter-toolbar">
           <select
             aria-label="Recovery category"
@@ -72,12 +109,6 @@ export default function Recovery({
               </option>
             ))}
           </select>
-          <input
-            aria-label="Search deleted records"
-            placeholder="Search deleted records"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
         </div>
         <div className="compact-list">
           {records.map((row) => (

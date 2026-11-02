@@ -1,3 +1,4 @@
+import PageHelp from "../page-help";
 export default function PrivacyPage() {
   return (
     <main
@@ -8,6 +9,7 @@ export default function PrivacyPage() {
         lineHeight: 1.7,
       }}
     >
+      <PageHelp screen="Privacy" />
       <h1>Budget Tracker privacy policy</h1>
       <p>
         Budget Tracker is a shared household budgeting application. Google
@@ -38,6 +40,18 @@ export default function PrivacyPage() {
         functions. GitHub Pages hosts the public application files. The app does
         not sell Google user data, use it for advertising, or transmit it to an
         analytics service.
+      </p>
+      <h2>Optional AI document scanning</h2>
+      <p>
+        When you choose Analyze with OpenAI, the selected bills, images or PDFs
+        and the active tag names are sent through the authenticated Google
+        service to OpenAI for extraction. Your Google token, owner email and the
+        rest of your ledger are not forwarded to OpenAI. The service uses a
+        server-side API key and requests store:false; OpenAI’s applicable API
+        data policies still apply. Extracted records are proposals until you
+        review and confirm them. Source files are not automatically stored as
+        Drive receipts. Screen guides do not send financial data; optional
+        read-aloud uses your browser’s speech service.
       </p>
       <h2>Your controls</h2>
       <p>

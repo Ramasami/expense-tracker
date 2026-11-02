@@ -181,6 +181,25 @@ function validate(
 
     if (!legacy) {
       validateExpenseTiming(r, data);
+      if (r.cardRefund === true) {
+        const card = data.accounts
+          .find((account) => account.id === r.account)
+          ?.creditCards?.find((card: any) => card.id === r.creditCardId);
+        const historical = data.transactions.some(
+          (row) =>
+            row.id === r.id &&
+            row.account === r.account &&
+            row.cardRefund === true &&
+            row.creditCardId === r.creditCardId,
+        );
+        if (r.type !== "Income" || (!card && !historical))
+          throw Error(
+            "Choose a linked credit card for a card refund, or record a bank refund as ordinary income.",
+          );
+        r.creditCardName =
+          card?.name || r.creditCardName || "Removed credit card";
+      }
+
       if (r.loanPayment === true && r.creditPayment === true)
         throw Error("Choose either a loan or credit card payment.");
       if (r.creditPayment === true) validateCreditPayment(r, data.transactions);
@@ -221,6 +240,22 @@ function validate(
   )
     throw Error("Enter a positive amount.");
   if (entity === "budgets" && !legacy) {
+    if (
+      r.tagIds !== undefined &&
+      (!Array.isArray(r.tagIds) ||
+        new Set(r.tagIds).size !== r.tagIds.length ||
+        r.tagIds.some(
+          (id: any) =>
+            typeof id !== "string" ||
+            !data.tags.some(
+              (t) =>
+                t.id === id && t.status === "Active" && t.type === "Expense",
+            ),
+        ))
+    )
+      throw Error("Choose valid, unique expense tags for this budget.");
+    if (r.tagScope === "selected" && !r.tagIds?.length)
+      throw Error("Choose at least one expense tag.");
     if (r.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(r.month))
       throw Error("Choose a valid budget month.");
     if (

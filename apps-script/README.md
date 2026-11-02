@@ -13,3 +13,18 @@ Deletion: authenticated `info` and `trash`, then the app removes the Sheet link.
 Older direct uploads are not owned by the service. They remain readable with their existing permissions and retain uploader-only deletion. Replace them with a shared upload, then have the original uploader delete the original attachment. The service does not silently create a replacement and leave an undeleted original.
 
 After changes, update the project source, create a new version and update the existing deployment to that version. Its URL remains stable. The public endpoint is the default in `lib/receipts.ts` and can be overridden at build time with `NEXT_PUBLIC_RECEIPT_SERVICE_URL`. Apps Script quotas and execution limits apply; receipt controls require connectivity and a valid Google session.
+
+## Optional OpenAI document scanner
+
+The same authenticated service now supports `scannerStatus` and `analyzeDocuments`. Both require the caller’s verified app token, active owner mapping and Sheet access. The analysis action returns proposals only; it never writes transactions, invokes model tools or changes Drive files.
+
+In **Project Settings → Script properties**, configure:
+
+- `OPENAI_API_KEY`: server-only OpenAI project key. Never put it in the browser, `.env` public variables, Git or chat.
+- `OPENAI_MODEL` (optional): default `gpt-4.1-mini`; use a model supporting Responses, image/PDF inputs and strict structured outputs.
+
+Requests use `https://api.openai.com/v1/responses`, `store:false`, a strict JSON schema and no tools. Existing `script.external_request` scope is sufficient. Only selected documents and sanitized active tag identifiers/names/types are forwarded; the caller’s Google token, owner email and full ledger are not forwarded. Applicable OpenAI API billing/data policies still apply. The scanner returns a clear setup message until the key is configured. This is a one-time setup: Script properties survive app refreshes, sign-outs, other devices and deployments. Once detected, the website shows **Configured** and hides key setup instructions. Only deleting or replacing the property changes the saved key.
+
+Limits: 1–5 files, each up to 2 MB decoded, 4 MB decoded total, at most 100 extracted transactions and 20 analyses per owner/day. Image/PDF MIME types, data-URL encoding and payload sizes are checked before calling OpenAI. Large scans do not hold the receipt service lock during the model request; the short lock only updates quota counters. Provider failures are sanitized and do not expose keys or raw provider output. API extraction never automatically retries or writes financial data.
+
+The website shows editable proposals, duplicate/uncertainty warnings and a mandatory final confirmation. Only the normal client-to-Sheets audited save path imports selected records. Updating this source requires creating a new Apps Script version and updating the existing deployment; do not create a second public frontend secret. Tests cover proposal-only behavior, missing-key handling, quotas, provider errors and shared-receipt authorization.

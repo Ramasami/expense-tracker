@@ -160,3 +160,16 @@ test("new receipt users require both active owner membership and access to the a
     assert.equal(denied.changes.length, 0);
   }
 });
+
+test("AI service actions reject accounts without owner mapping or Sheet access", () => {
+  for (const action of ["scannerStatus", "analyzeDocuments"]) {
+    const denied = service("outsider@example.com");
+    assert.equal(denied.run(action).ok, false);
+    assert.ok(!denied.calls.some((url) => url.includes("api.openai.com")));
+    const noSheet = service("new@example.com", undefined, {
+      email: "new@example.com",
+      sheetAccess: false,
+    });
+    assert.equal(noSheet.run(action).ok, false);
+  }
+});

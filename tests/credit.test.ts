@@ -339,3 +339,28 @@ test("imported statement bill payments without linked charge IDs remain recovera
     1900,
   );
 });
+
+test("card refunds require a matching card and do not inflate bank income", () => {
+  const state = sample();
+  const record = {
+    date: "2026-11-02",
+    description: "Card refund",
+    account: "card-account",
+    type: "Income",
+    cardRefund: true,
+    amount: 50,
+    creditCardId: "visa",
+    tagId: "default-tag-0",
+  };
+  const created = applyOperation(state, op(record));
+  assert.equal(created.result.record.creditCardName, "Visa");
+  assert.equal(
+    balance(created.state.data.accounts[0], created.state.data.transactions),
+    1000,
+  );
+  assert.equal(totals(created.state.data.transactions).income, 0);
+  assert.throws(
+    () => applyOperation(state, op({ ...record, creditCardId: "wrong" })),
+    /linked credit card/,
+  );
+});

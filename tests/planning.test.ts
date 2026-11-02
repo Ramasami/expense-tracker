@@ -119,3 +119,25 @@ test("CSV preview parses quoted fields, exact amounts, dates and intra-file/exis
   assert.deepEqual(statementDuplicates([row()], [row()]), [true]);
   assert.throws(() => parseCSV('a,b\n"unfinished'));
 });
+
+test("multi-tag budgets count matching purchases once and retain legacy single-tag behaviour", () => {
+  const rows = [
+    row({ id: "food", tagId: "food", amount: 100 }),
+    row({ id: "travel", tagId: "travel", amount: 200 }),
+    row({ id: "other", tagId: "other", amount: 300 }),
+  ];
+  assert.equal(
+    monthlySpending(row({ tagIds: ["food", "travel"] }), rows, "2026-11", [
+      "bank",
+    ]),
+    300,
+  );
+  assert.equal(
+    monthlySpending(row({ tagId: "food" }), rows, "2026-11", ["bank"]),
+    100,
+  );
+  assert.equal(
+    monthlySpending(row({ tagIds: [] }), rows, "2026-11", ["bank"]),
+    600,
+  );
+});

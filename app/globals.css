@@ -2674,3 +2674,471 @@ select:disabled {
     grid-template-columns: 1fr;
   }
 }
+/* A compact, direction-aware toolbar and on-demand screen guides. */
+.app-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  background: var(--card);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+.app-toolbar.toolbar-hidden {
+  transform: translateY(-105%);
+  pointer-events: none;
+}
+
+.toolbar-back,
+.screen-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.toolbar-back:disabled {
+  opacity: 0.35;
+}
+.screen-help {
+  color: var(--teal);
+  background: var(--soft);
+}
+.auth-card > .screen-help {
+  margin-top: 18px;
+}
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: #14272277;
+  backdrop-filter: blur(5px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.guide-dialog {
+  width: min(600px, 100%);
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  box-shadow: 0 24px 90px #0003;
+}
+.guide-hero {
+  padding: 26px 28px 22px;
+  background: linear-gradient(120deg, #e8f6ef, #fdf3e9);
+  border-radius: 25px 25px 0 0;
+}
+.guide-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.guide-hero-top > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  font-weight: 700;
+  color: var(--teal);
+}
+.guide-hero-top > button {
+  background: transparent;
+  border: 0;
+  padding: 5px;
+  color: var(--text);
+}
+.guide-hero h2 {
+  font-size: 26px;
+  margin: 20px 0 8px;
+  outline: none;
+  letter-spacing: -0.8px;
+}
+.guide-hero p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.guide-progress {
+  display: flex;
+  margin-top: 22px;
+  gap: 8px;
+}
+.guide-progress > button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  gap: 8px;
+  color: var(--muted);
+}
+.guide-progress span {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--card);
+  font-size: 10px;
+}
+.guide-progress i {
+  height: 3px;
+  flex: 1;
+  border-radius: 5px;
+  background: var(--border);
+}
+.guide-progress [aria-current="step"] span {
+  color: white;
+  background: var(--teal);
+}
+.guide-progress [aria-current="step"] i {
+  background: var(--teal);
+}
+.guide-content {
+  padding: 26px 28px;
+  min-height: 280px;
+}
+.guide-step-label {
+  color: var(--teal);
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  font-weight: 700;
+}
+.guide-content h3 {
+  font-size: 21px;
+  margin: 12px 0;
+  letter-spacing: -0.4px;
+}
+.guide-content > p {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.guide-example {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+}
+.guide-example > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--soft);
+  border-radius: 12px;
+}
+.guide-example span {
+  background: var(--card);
+  color: var(--teal);
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.guide-example b {
+  font-size: 12px;
+  font-weight: 550;
+}
+.guide-show {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  padding: 8px 0;
+  background: transparent;
+  color: var(--teal);
+  font-weight: 650;
+}
+.guide-footer {
+  border-top: 1px solid var(--border);
+  padding: 18px 28px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.guide-footer small {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.guide-read {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.guide-answers {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+.guide-answers button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  padding: 16px;
+  background: var(--soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.guide-answers .correct {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+.guide-answers .try-again {
+  border-color: var(--coral);
+}
+.guide-feedback {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--soft);
+}
+.guide-highlight {
+  outline: 3px solid var(--teal) !important;
+  outline-offset: 6px;
+  border-radius: 14px;
+}
+.guide-nudge {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100vw - 28px);
+  border: 1px solid var(--teal);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 8px 30px #0002;
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+.guide-nudge > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.guide-nudge > button {
+  font-size: 11px;
+  flex-shrink: 0;
+  padding: 7px;
+}
+.list-tools {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 18px 0;
+  min-width: 0;
+}
+.list-tools > input {
+  flex: 1;
+  min-width: 0;
+}
+.list-tools > details {
+  min-width: 135px;
+  flex: 1;
+  max-width: 430px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--card);
+}
+.list-tools > details > summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.list-tools > details[open] {
+  flex-basis: 60%;
+}
+.list-tools details > .form-grid {
+  margin-top: 15px;
+}
+.pill-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pill-options button {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 8px 13px;
+  font-size: 12px;
+}
+.pill-options button[aria-pressed="true"] {
+  border-color: var(--teal);
+  color: var(--teal);
+  background: var(--soft);
+}
+.budget-tag-picker {
+  grid-column: 1/-1;
+  display: grid;
+  gap: 12px;
+}
+.budget-tag-picker legend {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.budget-tag-list {
+  max-height: 190px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+.budget-tag-list label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.budget-tag-list input,
+.scan-confirm input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--teal);
+  flex-shrink: 0;
+}
+.scan-upload,
+.scan-intro {
+  padding: 18px;
+  background: var(--soft);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+}
+.scan-intro {
+  display: grid;
+  gap: 14px;
+}
+.scan-intro p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.scan-intro small {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.scan-confirm {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px;
+  border: 1px solid var(--teal);
+  border-radius: 12px;
+  margin: 16px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.scan-progress {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  font-size: 12px;
+}
+.scan-warnings {
+  padding: 14px;
+  background: var(--soft);
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+[data-theme="dark"] .guide-hero {
+  background: linear-gradient(120deg, #1c352d, #382e26);
+}
+@media (max-width: 650px) {
+  .app-toolbar {
+    gap: 8px;
+  }
+  .header-start,
+  .header-actions {
+    gap: 8px;
+  }
+  .toolbar-back,
+  .screen-help {
+    padding: 8px;
+    font-size: 11px;
+    gap: 5px;
+  }
+  .guide-overlay {
+    padding: 10px;
+  }
+  .guide-hero,
+  .guide-content {
+    padding: 22px;
+  }
+  .guide-footer {
+    padding: 16px 22px;
+  }
+  .guide-hero h2 {
+    font-size: 23px;
+  }
+  .guide-content h3 {
+    font-size: 19px;
+  }
+  .guide-nudge {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .list-tools {
+    flex-wrap: wrap;
+  }
+  .list-tools > details {
+    max-width: none;
+  }
+  .budget-tag-list {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-toolbar {
+    transition: none;
+  }
+}
+.guide-footer .row-actions > .primary {
+  background: var(--coral);
+  color: #fff;
+  padding: 11px 16px;
+  font-size: 12px;
+  border-radius: 12px;
+}
+.guide-footer .row-actions > .primary:hover {
+  background: #e72f51;
+}

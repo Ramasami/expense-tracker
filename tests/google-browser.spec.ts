@@ -2123,3 +2123,430 @@ test("long CSV previews paginate without losing selection and import explicit tr
   expect(added[0][19]).toBe("varsha-bank");
   expect(added[0][21]).toBe("Transfer");
 });
+
+test("Back restores the previous screen and transaction filters without duplicating history", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await login(page);
+  await expect(
+    page.getByRole("button", { name: "Go back", exact: true }),
+  ).toBeDisabled();
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "Search transactions", exact: true })
+    .fill("Original");
+  await page
+    .getByLabel("Sort transactions", { exact: true })
+    .selectOption("amount-low");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Back to Transactions", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Transactions", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("searchbox", { name: "Search transactions", exact: true }),
+  ).toHaveValue("Original");
+  await expect(
+    page.getByLabel("Sort transactions", { exact: true }),
+  ).toHaveValue("amount-low");
+  await page
+    .getByRole("button", { name: "Back to Dashboard", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: /Hello, Ram/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Go back", exact: true }),
+  ).toBeDisabled();
+});
+
+test("every screen has an interactive guide that stays read-only and supports keyboard dismissal", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  const pages = [
+    "Dashboard",
+    "Transactions",
+    "Credit Card Bills",
+    "Loan Tracker",
+    "Expense Analytics",
+    "Investments",
+    "Income & Cash Flow",
+    "Accounts",
+    "Expense Tags",
+    "Budgets",
+    "Financial Goals",
+    "Recurring Transactions",
+    "Audit History",
+    "Reports",
+    "Settings",
+  ];
+  for (const name of pages) {
+    if (name !== "Dashboard")
+      await page
+        .locator("nav")
+        .getByRole("button", { name: new RegExp(`^${name}`) })
+        .click();
+    await page
+      .getByRole("button", { name: `Help for ${name}`, exact: true })
+      .click();
+    const guide = page.getByRole("dialog", { name, exact: true });
+    await expect(guide).toBeVisible();
+    await guide.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(guide).toContainText("STEP 2");
+    await page.keyboard.press("Escape");
+    await expect(guide).toHaveCount(0);
+  }
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Dashboard", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Help for Dashboard", exact: true })
+    .click();
+  const guide = page.getByRole("dialog", { name: "Dashboard", exact: true });
+  await guide.getByRole("button", { name: /Step 4:/ }).click();
+  await guide.getByRole("button", { name: "No", exact: true }).click();
+  await expect(guide.getByRole("status")).toContainText("Exactly");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "work/screen-guide-mobile.png",
+    animations: "disabled",
+    fullPage: false,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await guide.getByRole("button", { name: "Got it", exact: true }).click();
+});
+
+test("toolbar hides when scrolling down and returns after a small upward scroll", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await login(page);
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await expect(page.locator(".app-toolbar")).toHaveClass(/toolbar-hidden/);
+  await page.evaluate(() => window.scrollTo(0, 590));
+  await expect(page.locator(".app-toolbar")).not.toHaveClass(/toolbar-hidden/);
+  await expect(
+    page.getByRole("button", { name: "Help for Dashboard", exact: true }),
+  ).toBeInViewport();
+  await page.evaluate(() => window.scrollTo(0, 700));
+  await expect(page.locator(".app-toolbar")).toHaveClass(/toolbar-hidden/);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator(".app-toolbar")).not.toHaveClass(/toolbar-hidden/);
+});
+
+test("a budget can select multiple searched tags and count only those purchases", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  f.grids["Expense Tags"].push([
+    "Dining",
+    "Expense",
+    "",
+    "dining",
+    "Active",
+    1,
+  ]);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Budgets", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add budget", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add budget", exact: true });
+  await dialog.getByLabel("Budget name", { exact: true }).fill("Food together");
+  await dialog.getByLabel("Monthly limit (₹)", { exact: true }).fill("1000");
+  await dialog.getByRole("button", { name: /Choose tags/ }).click();
+  await dialog
+    .getByRole("checkbox", { name: "Groceries", exact: true })
+    .check();
+  await dialog
+    .getByRole("textbox", { name: "Search budget tags", exact: true })
+    .fill("Din");
+  await dialog.getByRole("checkbox", { name: "Dining", exact: true }).check();
+  await dialog
+    .getByRole("button", { name: "Save budget", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".monthly-budgets .entity-card")).toContainText(
+    "Groceries, Dining",
+  );
+  const record = JSON.parse(f.grids.Budgets.at(-1)![7]);
+  expect(record.tagIds).toHaveLength(2);
+  await expect(page.locator(".monthly-budgets .entity-card")).toContainText(
+    "₹250",
+  );
+});
+
+test("AI bill scans require review confirmation before any Sheet update", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  let analyses = 0;
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const req = route.request().postDataJSON();
+    if (req.action === "scannerStatus")
+      return route.fulfill({
+        json: { ok: true, result: { configured: true, model: "gpt-4.1-mini" } },
+      });
+    analyses++;
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          transactions: [
+            {
+              date: "2026-11-02",
+              description: "AI bill proposal",
+              amount: 125,
+              type: "Expense",
+              expenseMode: "Debit",
+              kind: "purchase",
+              tagId: "sheet-tag-2",
+              accountHint: null,
+              toAccountHint: null,
+              creditCardHint: null,
+              currency: "INR",
+              confidence: "high",
+              sourceIndex: 0,
+              notes: "Review this receipt",
+            },
+          ],
+          warnings: ["Check the date and amount before saving."],
+        },
+      },
+    });
+  });
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await dialog
+    .getByRole("button", { name: "Scan bills & statements", exact: true })
+    .click();
+  await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
+    name: "bill.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-test"),
+  });
+  await dialog
+    .getByRole("button", { name: "Analyze with OpenAI", exact: true })
+    .click();
+  await expect(
+    dialog.getByLabel("Row 1 description", { exact: true }),
+  ).toHaveValue("AI bill proposal");
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+  const save = dialog.getByRole("button", {
+    name: "Import 1 selected transactions",
+    exact: true,
+  });
+  await expect(save).toBeDisabled();
+  await dialog
+    .getByRole("checkbox", { name: /I reviewed the selected entries/ })
+    .check();
+  await expect(save).toBeEnabled();
+  await dialog.getByLabel("Row 1 amount", { exact: true }).fill("120");
+  await expect(save).toBeDisabled();
+  await dialog
+    .getByRole("checkbox", { name: /I reviewed the selected entries/ })
+    .check();
+  await save.click();
+  await expect(dialog).toContainText("1 saved");
+  expect(
+    f.grids["Expense Ledger"].filter((r) => r[1] === "AI bill proposal"),
+  ).toHaveLength(1);
+  expect(analyses).toBe(1);
+});
+
+test("list controls search account names, filter status and sort report choices", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  f.grids.Accounts.push([
+    "extra-bank",
+    "Active",
+    1,
+    "",
+    "",
+    "",
+    "",
+    JSON.stringify({
+      id: "extra-bank",
+      name: "AAA savings",
+      type: "Bank",
+      ownerIds: ["owner-ram"],
+      openingBalance: 1000,
+      status: "Active",
+      version: 1,
+    }),
+  ]);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "Search Accounts", exact: true })
+    .fill("AAA");
+  await expect(
+    page.locator(".entity-grid").first().locator(".entity-card"),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".entity-grid").first().locator(".entity-card"),
+  ).toContainText("AAA savings");
+  await page
+    .getByRole("searchbox", { name: "Search Accounts", exact: true })
+    .fill("");
+  await page.getByText("Sort & filter", { exact: true }).click();
+  await page
+    .getByLabel("Sort Accounts", { exact: true })
+    .selectOption("amount");
+  await expect(
+    page.locator(".entity-grid").first().locator(".entity-card").first(),
+  ).toContainText("AAA savings");
+  await page
+    .getByLabel("Accounts status filter", { exact: true })
+    .selectOption("Archived");
+  await expect(
+    page.locator(".entity-grid").first().locator(".entity-card"),
+  ).toHaveCount(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Reports", exact: true })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "Search reports", exact: true })
+    .fill("Investment");
+  await expect(page.locator(".report-card")).toHaveCount(1);
+  await expect(page.locator(".report-card")).toContainText(
+    "Investment Contribution Report",
+  );
+});
+
+test("a scanner without an API key shows setup guidance and never analyzes or writes", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  let calls = 0;
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    calls++;
+    expect(route.request().postDataJSON().action).toBe("scannerStatus");
+    return route.fulfill({
+      json: { ok: true, result: { configured: false, model: "gpt-4.1-mini" } },
+    });
+  });
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Import statement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await dialog
+    .getByRole("button", { name: "Scan bills & statements", exact: true })
+    .click();
+  await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
+    name: "bill.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-test"),
+  });
+  await dialog
+    .getByRole("button", { name: "Analyze with OpenAI", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("not configured");
+  expect(calls).toBe(1);
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+});
+
+test("sign-in and privacy guides work without requesting financial records", async ({
+  page,
+}) => {
+  const { state } = await mockGoogle(page);
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Help for Welcome", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Meet Budget Tracker", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(state.sheetRequests).toBe(0);
+  await page.goto("/privacy/");
+  await page
+    .getByRole("button", { name: "Help for Privacy", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Privacy", exact: true }),
+  ).toBeVisible();
+  expect(state.sheetRequests).toBe(0);
+});
+
+test("configured scanner stays ready after reload without asking for the key again", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  let checks = 0;
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    expect(route.request().postDataJSON().action).toBe("scannerStatus");
+    checks++;
+    return route.fulfill({
+      json: { ok: true, result: { configured: true, model: "gpt-4.1-mini" } },
+    });
+  });
+  await login(page);
+  for (let visit = 0; visit < 2; visit++) {
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page
+      .getByRole("button", { name: "Import statement", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Import statement",
+      exact: true,
+    });
+    await dialog
+      .getByRole("button", { name: "Scan bills & statements", exact: true })
+      .click();
+    await expect(dialog.getByRole("status")).toContainText(
+      "Configured · API key saved securely on the server",
+    );
+    await expect(
+      dialog.getByText("Scanner setup", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("link", { name: /Open scanner service setup/ }),
+    ).toHaveCount(0);
+    if (visit === 0) await page.reload();
+  }
+  expect(checks).toBe(2);
+});

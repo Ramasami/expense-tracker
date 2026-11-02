@@ -1,4 +1,7 @@
 "use client";
+import ListControls from "./list-controls";
+import PageHelp from "./page-help";
+import { useScrollToolbar } from "./use-scroll-toolbar";
 import Analytics from "./analytics";
 import Reconciliation from "./reconciliation";
 import StatementImport from "./statement-import";
@@ -70,6 +73,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   ChevronRight,
+  ChevronLeft,
   X,
   Menu,
   RefreshCw,
@@ -166,6 +170,19 @@ const today = () =>
   }).format(new Date());
 export default function Home() {
   const [mounted, setMounted] = useState(false);
+  const [visits, setVisits] = useState<{ page: string; restore: () => void }[]>(
+    [],
+  );
+  const [helpActive, setHelpActive] = useState(false);
+  const [entitySort, setEntitySort] = useState("name"),
+    [entityStatus, setEntityStatus] = useState("Active"),
+    [entityType, setEntityType] = useState("");
+  const [auditSort, setAuditSort] = useState("newest"),
+    [auditAction, setAuditAction] = useState("");
+  const [breakdownQuery, setBreakdownQuery] = useState(""),
+    [breakdownSort, setBreakdownSort] = useState("amount");
+  const [reportQuery, setReportQuery] = useState(""),
+    [reportSort, setReportSort] = useState("default");
   const [data, setData] = useState<Snapshot>(empty),
     [page, setPage] = useState("Dashboard"),
     [person, setPerson] = useState("Combined"),
@@ -209,6 +226,10 @@ export default function Home() {
     [connecting, setConnecting] = useState(false),
     [authChecked, setAuthChecked] = useState(false),
     [dataReady, setDataReady] = useState(false);
+  const toolbar = useScrollToolbar(
+    page,
+    mobile || !!modal || !!detail || !!conflict || helpActive,
+  );
   const dataRef = useRef<Snapshot>(empty);
   const fetchedRef = useRef<Partial<Record<Collection, number>>>({});
   const [fetchedAt, setFetchedAt] = useState<
@@ -242,6 +263,7 @@ export default function Home() {
     setConflict(null);
     setNotice("");
     setError(message);
+    setVisits([]);
     setPage("Dashboard");
     pageRef.current = "Dashboard";
     setPeriod("All Time");
@@ -737,12 +759,69 @@ export default function Home() {
                 : b.date.localeCompare(a.date),
     );
   function navigate(p: string) {
+    if (p === pageRef.current) {
+      setMobile(false);
+      return;
+    }
+    const previousPage = pageRef.current,
+      y = window.scrollY;
+    const restore = () => {
+      setPage(previousPage);
+      pageRef.current = previousPage;
+      setPerson(person);
+      setPeriod(period);
+      setCustom(custom);
+      setSearch(search);
+      setDeleted(deleted);
+      setFiltersOpen(filtersOpen);
+      setTagFilter(tagFilter);
+      setTypeFilter(typeFilter);
+      setAccountFilter(accountFilter);
+      setPaymentFilter(paymentFilter);
+      setReceiptFilter(receiptFilter);
+      setMin(min);
+      setMax(max);
+      setSort(sort);
+      setOffset(offset);
+      setSelected([]);
+      setEntitySort(entitySort);
+      setEntityStatus(entityStatus);
+      setEntityType(entityType);
+      setAuditSort(auditSort);
+      setAuditAction(auditAction);
+      setReportQuery(reportQuery);
+      setReportSort(reportSort);
+      setBreakdownQuery(breakdownQuery);
+      setBreakdownSort(breakdownSort);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          window.scrollTo({ top: y, behavior: "instant" }),
+        ),
+      );
+    };
+    setVisits((stack) => [
+      ...stack.slice(-29),
+      { page: previousPage, restore },
+    ]);
     setPage(p);
+    setEntityType("");
     pageRef.current = p;
     if (currentGoogleSession()) void refreshSheet(false, p);
     setMobile(false);
     setOffset(0);
     setSelected([]);
+    requestAnimationFrame(() =>
+      window.scrollTo({ top: 0, behavior: "instant" }),
+    );
+  }
+  function goBack() {
+    const previous = visits.at(-1);
+    if (!previous || saving || syncing) return;
+    setVisits((stack) => stack.slice(0, -1));
+    setMobile(false);
+    previous.restore();
+    toolbar.reveal();
+    if (currentGoogleSession()) void refreshSheet(false, previous.page);
   }
   function open(entity: string, record: any = {}) {
     if (stale || syncing) {
@@ -1358,6 +1437,8 @@ export default function Home() {
     if (!key) return null;
     const records = (data[key] as RecordData[]).filter(
       (r) =>
+        (!entityStatus || r.status === entityStatus) &&
+        (!entityType || r.type === entityType) &&
         (key === "accounts"
           ? person === "Combined" ||
             accountOwners(r, allOwners(data.settings)).some((id) =>
@@ -1369,6 +1450,7 @@ export default function Home() {
             r.person === person) &&
         (!search ||
           [
+            r.name,
             r.description,
             r.notes,
             r.tag,
@@ -1382,6 +1464,24 @@ export default function Home() {
             .join(" ")
             .toLowerCase()
             .includes(search.trim().toLowerCase())),
+    );
+    const amount = (r: RecordData) =>
+      key === "accounts"
+        ? balance(r, data.transactions)
+        : key === "tags"
+          ? data.transactions
+              .filter((t) => t.status === "Active" && t.tagId === r.id)
+              .reduce((sum, t) => sum + Number(t.amount), 0)
+          : Number(r.amount || 0);
+    records.sort((a, b) =>
+      entitySort === "amount"
+        ? amount(b) - amount(a)
+        : entitySort === "updated"
+          ? String(b.updatedAt).localeCompare(String(a.updatedAt))
+          : String(a.name).localeCompare(String(b.name)),
+    );
+    const recordTypes = Array.from(
+      new Set((data[key] as RecordData[]).map((r) => r.type).filter(Boolean)),
     );
     return (
       <>
@@ -1408,6 +1508,47 @@ export default function Home() {
                     : "schedule"}
           </button>
         </div>
+        <ListControls
+          label={page}
+          search={search}
+          onSearch={setSearch}
+          sort={entitySort}
+          onSort={setEntitySort}
+          sorts={[
+            ["name", "Name A–Z"],
+            ["amount", "Largest amount first"],
+            ["updated", "Recently updated"],
+          ]}
+        >
+          <label className="field">
+            Record status
+            <select
+              aria-label={`${page} status filter`}
+              value={entityStatus}
+              onChange={(event) => setEntityStatus(event.target.value)}
+            >
+              <option value="Active">Active</option>
+              <option value="Archived">Archived</option>
+              <option value="Deleted">Deleted</option>
+              <option value="">All statuses</option>
+            </select>
+          </label>
+          {recordTypes.length > 1 && (
+            <label className="field">
+              Record type
+              <select
+                aria-label={`${page} type filter`}
+                value={entityType}
+                onChange={(event) => setEntityType(event.target.value)}
+              >
+                <option value="">All types</option>
+                {recordTypes.map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </ListControls>
         <div className="entity-grid">
           {records.map((r) => {
             const spent = budgetSpent(r, filtered);
@@ -1643,6 +1784,7 @@ export default function Home() {
             Sign in with an email assigned to an active owner who has access to
             the Budget Sheet. Financial records are loaded from Google Sheets.
           </small>
+          <PageHelp screen="Welcome" />
         </section>
       </main>
     );
@@ -1729,8 +1871,29 @@ export default function Home() {
         />
       )}
       <div className="main">
-        <header>
+        <header
+          className={
+            toolbar.hidden ? "app-toolbar toolbar-hidden" : "app-toolbar"
+          }
+          onFocusCapture={toolbar.reveal}
+        >
           <div className="header-start">
+            <button
+              className="toolbar-back"
+              aria-label={
+                visits.length ? `Back to ${visits.at(-1)!.page}` : "Go back"
+              }
+              title={
+                visits.length
+                  ? `Back to ${visits.at(-1)!.page}`
+                  : "No previous screen"
+              }
+              disabled={!visits.length || saving || syncing}
+              onClick={goBack}
+            >
+              <ChevronLeft size={19} />
+              <span>Back</span>
+            </button>
             <button
               className="icon-button menu"
               aria-label="Open navigation"
@@ -1744,6 +1907,7 @@ export default function Home() {
             </span>
           </div>
           <div className="header-actions">
+            <PageHelp key={page} screen={page} onActiveChange={setHelpActive} />
             <label className="search">
               <Search size={16} />
               <input
@@ -2788,6 +2952,22 @@ export default function Home() {
                         </h2>
                       </div>
                       <div className="breakdown">
+                        <ListControls
+                          label={
+                            page === "Investments"
+                              ? "investment categories"
+                              : "expense categories"
+                          }
+                          search={breakdownQuery}
+                          onSearch={setBreakdownQuery}
+                          sort={breakdownSort}
+                          onSort={setBreakdownSort}
+                          sorts={[
+                            ["amount", "Largest amount first"],
+                            ["smallest", "Smallest amount first"],
+                            ["name", "Name A–Z"],
+                          ]}
+                        />
                         {(page === "Investments"
                           ? Object.entries(
                               active
@@ -2804,25 +2984,40 @@ export default function Home() {
                               value: Number(value),
                             }))
                           : categories
-                        ).map((c, i) => (
-                          <button
-                            key={c.name}
-                            onClick={() => {
-                              navigate("Transactions");
-                              setTagFilter(c.name);
-                            }}
-                          >
-                            <span>
-                              <i
-                                style={{
-                                  background: colors[i % colors.length],
-                                }}
-                              />
-                              {c.name}
-                            </span>
-                            <b>{money(c.value)}</b>
-                          </button>
-                        ))}
+                        )
+                          .filter(
+                            (c) =>
+                              !breakdownQuery ||
+                              c.name
+                                .toLowerCase()
+                                .includes(breakdownQuery.toLowerCase()),
+                          )
+                          .sort((a, b) =>
+                            breakdownSort === "name"
+                              ? a.name.localeCompare(b.name)
+                              : breakdownSort === "smallest"
+                                ? a.value - b.value
+                                : b.value - a.value,
+                          )
+                          .map((c, i) => (
+                            <button
+                              key={c.name}
+                              onClick={() => {
+                                navigate("Transactions");
+                                setTagFilter(c.name);
+                              }}
+                            >
+                              <span>
+                                <i
+                                  style={{
+                                    background: colors[i % colors.length],
+                                  }}
+                                />
+                                {c.name}
+                              </span>
+                              <b>{money(c.value)}</b>
+                            </button>
+                          ))}
                       </div>
                     </section>
                   </div>
@@ -2916,6 +3111,33 @@ export default function Home() {
                       Export
                     </button>
                   </div>
+                  <ListControls
+                    label="audit history"
+                    search={search}
+                    onSearch={setSearch}
+                    sort={auditSort}
+                    onSort={setAuditSort}
+                    sorts={[
+                      ["newest", "Newest changes first"],
+                      ["oldest", "Oldest changes first"],
+                    ]}
+                  >
+                    <label className="field">
+                      Audit action
+                      <select
+                        aria-label="Audit action filter"
+                        value={auditAction}
+                        onChange={(event) => setAuditAction(event.target.value)}
+                      >
+                        <option value="">All actions</option>
+                        {Array.from(new Set(data.audit.map((r) => r.action)))
+                          .sort()
+                          .map((action) => (
+                            <option key={action}>{action}</option>
+                          ))}
+                      </select>
+                    </label>
+                  </ListControls>
                   <div className="timeline">
                     {data.audit
                       .filter(
@@ -2934,6 +3156,12 @@ export default function Home() {
                                   String(r.actor).toLowerCase(),
                                 ),
                               )),
+                      )
+                      .filter((r) => !auditAction || r.action === auditAction)
+                      .sort((a, b) =>
+                        auditSort === "oldest"
+                          ? a.timestamp.localeCompare(b.timestamp)
+                          : b.timestamp.localeCompare(a.timestamp),
                       )
                       .map((r) => (
                         <details key={r.id}>
@@ -2983,57 +3211,82 @@ export default function Home() {
                 </section>
               )}
               {page === "Reports" && (
-                <div className="entity-grid">
-                  {[
-                    "Weekly Expense Report",
-                    "Monthly Financial Summary",
-                    "YTD Financial Summary",
-                    "Annual Financial Report",
-                    "Category Expense Report",
-                    "Tag Report",
-                    "Merchant Report",
-                    "Investment Contribution Report",
-                    "Owner Comparison Report",
-                    "Account Statement",
-                    "Audit History Report",
-                  ].map((title) => (
-                    <section className="card report-card" key={title}>
-                      <FileText size={28} />
-                      <h3>{title}</h3>
-                      <p>
-                        Uses the selected person, dates, and matching records.
-                      </p>
-                      <div className="row-actions">
-                        {["csv", "xlsx", "pdf"].map((f) => (
-                          <button
-                            key={f}
-                            onClick={() =>
-                              exportData(
-                                f,
-                                report(
-                                  title,
-                                  active,
-                                  data.audit.filter(
-                                    (a) =>
-                                      String(a.timestamp).slice(0, 10) >=
-                                        range[0] &&
-                                      String(a.timestamp).slice(0, 10) <=
-                                        range[1] &&
-                                      (person === "Combined" ||
-                                        String(a.actor).startsWith(person)),
-                                  ),
-                                ),
-                                title,
-                              )
-                            }
-                          >
-                            {f.toUpperCase()} <Download size={13} />
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                <>
+                  <ListControls
+                    label="reports"
+                    search={reportQuery}
+                    onSearch={setReportQuery}
+                    sort={reportSort}
+                    onSort={setReportSort}
+                    sorts={[
+                      ["default", "Default order"],
+                      ["name", "Name A–Z"],
+                    ]}
+                  />
+                  <div className="entity-grid report-grid">
+                    {[
+                      "Weekly Expense Report",
+                      "Monthly Financial Summary",
+                      "YTD Financial Summary",
+                      "Annual Financial Report",
+                      "Category Expense Report",
+                      "Tag Report",
+                      "Merchant Report",
+                      "Investment Contribution Report",
+                      "Owner Comparison Report",
+                      "Account Statement",
+                      "Audit History Report",
+                    ]
+                      .filter(
+                        (title) =>
+                          !reportQuery ||
+                          title
+                            .toLowerCase()
+                            .includes(reportQuery.toLowerCase()),
+                      )
+                      .sort((a, b) =>
+                        reportSort === "name" ? a.localeCompare(b) : 0,
+                      )
+                      .map((title) => (
+                        <section className="card report-card" key={title}>
+                          <FileText size={28} />
+                          <h3>{title}</h3>
+                          <p>
+                            Uses the selected person, dates, and matching
+                            records.
+                          </p>
+                          <div className="row-actions">
+                            {["csv", "xlsx", "pdf"].map((f) => (
+                              <button
+                                key={f}
+                                onClick={() =>
+                                  exportData(
+                                    f,
+                                    report(
+                                      title,
+                                      active,
+                                      data.audit.filter(
+                                        (a) =>
+                                          String(a.timestamp).slice(0, 10) >=
+                                            range[0] &&
+                                          String(a.timestamp).slice(0, 10) <=
+                                            range[1] &&
+                                          (person === "Combined" ||
+                                            String(a.actor).startsWith(person)),
+                                      ),
+                                    ),
+                                    title,
+                                  )
+                                }
+                              >
+                                {f.toUpperCase()} <Download size={13} />
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                  </div>
+                </>
               )}
               {page === "Settings" && (
                 <section className="card settings">
