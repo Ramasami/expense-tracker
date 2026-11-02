@@ -565,6 +565,18 @@ export default function Home() {
   ).filter(matchesAccount);
   const active = filtered.filter((r) => r.status !== "Deleted");
   const stats = totals(active);
+  const currentBalance = visibleAccounts
+    .filter((account) => !scopedAccount || account.id === scopedAccount)
+    .reduce((sum, account) => {
+      const confirmed = account.balanceConfirmation?.amount;
+      return (
+        sum +
+        (typeof confirmed === "number" && Number.isFinite(confirmed)
+          ? confirmed
+          : balance(account, data.transactions))
+      );
+    }, 0);
+
   const outstandingCredit = unpaidCredit(data.transactions).filter(
     (row) =>
       belongsToOwner(row, person, data.accounts, allOwners(data.settings)) &&
@@ -1952,13 +1964,20 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="stats-grid">
-                    {card(
-                      "Total income",
-                      stats.income,
-                      previous.income,
-                      "var(--teal)",
-                      "Income",
-                    )}
+                    <button
+                      className="stat card"
+                      onClick={() => navigate("Accounts")}
+                    >
+                      <span className="stat-label">
+                        Current Balance <ArrowUpRight size={17} />
+                      </span>
+                      <strong style={{ color: "var(--teal)" }}>
+                        {money(currentBalance)}
+                      </strong>
+                      <span className="comparison">
+                        Available balances · independent of report dates
+                      </span>
+                    </button>
                     {card(
                       "Paid expenses",
                       stats.expense,

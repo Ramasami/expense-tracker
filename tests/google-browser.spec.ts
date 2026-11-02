@@ -1587,6 +1587,9 @@ test("account balances appear across screens and distinguish confirmed bank bala
   await expect(ram).toContainText("₹1,500");
   await expect(ram).toContainText("Ledger: ₹1,750");
   await expect(ram).toContainText("₹250 higher");
+  await expect(
+    page.getByRole("button", { name: /Current Balance/ }),
+  ).toContainText("₹1,500");
   for (const name of ["Transactions", "Loan Tracker", "Accounts"]) {
     await page
       .locator("nav")
