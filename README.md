@@ -1,14 +1,14 @@
 # Budget Tracker
 
-A static GitHub Pages app for Ram and Varsha. Google Sheets is the sole source of financial records; Google Drive holds uploaded bills and receipts. The website is statically hosted on GitHub Pages. A small owner-executed Google Apps Script service manages shared receipt files; financial records still go directly to Google Sheets.
+A static GitHub Pages household budget app. Google Sheets is the sole source of financial records; Google Drive holds uploaded bills and receipts. The website is statically hosted on GitHub Pages. A small owner-executed Google Apps Script service manages shared receipt files; financial records still go directly to Google Sheets.
 
 ## Access and sessions
 
-The first screen requires Google sign-in. Only verified profiles for `ramasami.official@gmail.com` and `tnvarsha.99@gmail.com` are accepted. The supplied public Web OAuth client ID is configured by default; no client secret is included in the site.
+The first screen requires Google sign-in. A verified Google profile must have access to the private Budget Sheet and its email must map to an active owner in the Sheet. Accounts without either condition are rejected. The app checks this on each online sign-in/session restore; the receipt service checks both again for every file operation. Ram and Varsha are the initial owners. The supplied public Web OAuth client ID is configured by default; no client secret is included in the site.
 
 A short-lived Google access token and its expiry are saved in `localStorage` on this device, so refreshing, closing and reopening the phone's installed Chrome app does not open another login prompt while the token is valid. When online, the app verifies that token and the approved account with Google before fetching the workbook. Offline behavior is described below. The session ends on sign-out, Google token expiry, or clearing site data. Closing the tab or installed app does not end a valid saved session. Expired tokens require sign-in again; this static app does not store refresh tokens. Local storage is readable by scripts on this origin, so treat it as a short-lived browser credential. Neither session credentials nor receipt bytes are included in exports.
 
-In Google Cloud, enable **Google Sheets API** and **Google Drive API**. Keep the OAuth app External / Testing with only the two approved emails as test users. Add these authorized JavaScript origins to the Web application client:
+In Google Cloud, enable **Google Sheets API** and **Google Drive API**. The OAuth app is External. To admit additional owners without manually maintaining test users, complete Google’s branding configuration and publish the OAuth app to Production. Google verification/user-cap restrictions still apply. While the OAuth app remains in Testing, each new owner must also be listed as a Google OAuth test user. Add these authorized JavaScript origins to the Web application client:
 
 - `http://127.0.0.1:3000`
 - `http://localhost:3000`
@@ -16,7 +16,7 @@ In Google Cloud, enable **Google Sheets API** and **Google Drive API**. Keep the
 
 Redirect URIs are not needed for this popup token flow. The app requests `spreadsheets`, `drive.file`, `openid`, email and profile scopes. Users must approve file access for receipt uploads. An optional `NEXT_PUBLIC_GOOGLE_CLIENT_ID` build variable or Settings client ID can override the default.
 
-**Workbook permissions enforce data privacy.** GitHub Pages serves public application files, and client-side checks alone cannot protect a publicly shared spreadsheet. Set the workbook's General access to **Restricted** and grant editor access only to the two approved accounts. The app uses authenticated Sheets requests, so it does not need a public workbook. Keep the Google test-user list restricted too.
+**Workbook permissions enforce data privacy.** GitHub Pages serves public application files, and client-side checks alone cannot protect a publicly shared spreadsheet. Set the workbook's General access to **Restricted** and grant access only to the people you intend to authorize. Editing requires Sheet editor permission. Adding an owner email in Budget Tracker never grants or changes Google sharing permissions. The app uses authenticated Sheets requests, so it does not need a public workbook. Keep Sheet sharing Restricted.
 
 ## Data behavior
 
@@ -80,3 +80,17 @@ First-time workbook setup creates recovery copies of the original ledger, tags a
 The superseded backend and CLI authorization remain under ignored `work/` for recovery and are excluded from Git and static output. Do not upload `work/` or environment files.
 
 Google references: [browser token model](https://developers.google.com/identity/oauth2/web/guides/use-token-model), [Drive uploads](https://developers.google.com/workspace/drive/api/guides/manage-uploads), [Drive downloads](https://developers.google.com/workspace/drive/api/guides/manage-downloads).
+
+## Owners and accounts
+
+Accounts & Ledgers supports adding, editing, deleting and restoring account records. An account has one or more owner IDs; an owner can belong to several accounts. Owners are Sheet-backed records in App Settings with `kind: owner`, a name, stable ID and zero or more sign-in emails. Each active email can map to only one active owner. Owner removal is reversible and is blocked until their active accounts are reassigned. Renaming an owner retains former names for historical attribution. Removing an owner does not revoke their underlying Google Sheet permission; manage sharing separately in Google.
+
+Sign-in defaults to the email’s mapped owner. Combined includes each transaction once; owner views include all accounts assigned to that owner. Shared accounts appear in each owner’s view at their full value (no fractional allocation). Archived/deleted records and account references are retained for audit/history. Transaction account fields still accept free text and resolve recognized account names to stable account IDs. Unassigned historical rows fall back to their person attribution.
+
+Ram HDFC and Varsha HDFC start with zero opening balances and are assigned to Ram and Varsha respectively. Ownership migration creates private recovery copies before linking existing unassigned Ram/Varsha transactions; amounts and dates are unchanged.
+
+Amount fields accept arithmetic (`+`, `-`, `*`, `/`, parentheses; also × and ÷) and show the computed INR total. Parsing uses arithmetic rules rather than JavaScript execution, rejects nonpositive/invalid results and division by zero, and rounds to two decimal places. Only the numeric total is saved to Sheets.
+
+A save that fails to confirm retains the exact attempted record and operation ID. Cancel/Close remain usable; Retry save revalidates Google Sheets first and checks the same operation to avoid duplicate writes. The form’s fields remain locked while that attempted operation is unresolved. No stale/offline financial writes are accepted.
+
+Phone/tablet touch gestures use a fixed viewport; pinch/double-tap zoom is disabled where supported by the browser, and touch input fonts are at least 16px to avoid focus zoom. Device/browser accessibility overrides can still apply.

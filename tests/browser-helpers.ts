@@ -10,6 +10,8 @@ export async function mockGoogle(page: Page) {
     failReads: false,
     failWrites: false,
     dropWriteResponse: false,
+    sheetAccess: true,
+    authReads: 0,
     email: "ramasami.official@gmail.com",
   };
   await page.addInitScript(() => {
@@ -42,8 +44,20 @@ export async function mockGoogle(page: Page) {
     }),
   );
   await page.route("https://sheets.googleapis.com/**", async (route) => {
-    state.sheetRequests++;
     const req = route.request();
+    const authRead =
+      req.url().includes("values:batchGet") &&
+      new URL(req.url()).searchParams.getAll("ranges").length === 1 &&
+      new URL(req.url()).searchParams.get("ranges") ===
+        "'App Settings'!A1:H10000";
+    if (authRead) {
+      state.authReads++;
+      if (!state.sheetAccess)
+        return route.fulfill({
+          status: 403,
+          json: { error: { message: "No Sheet access" } },
+        });
+    } else state.sheetRequests++;
     if (req.url().includes("values:batchGet"))
       state.ranges.push(new URL(req.url()).searchParams.getAll("ranges"));
     if (

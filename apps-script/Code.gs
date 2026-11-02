@@ -56,8 +56,37 @@ function authenticate_(token) {
     throw Error("Google account verification failed.");
   const profile = JSON.parse(profileResponse.getContentText());
   const email = String(profile.email || "").toLowerCase();
-  if (profile.email_verified !== true || PEOPLE.indexOf(email) < 0)
+  if (profile.email_verified !== true)
     throw Error("This Google account is not authorized.");
+  const access = UrlFetchApp.fetch(
+    "https://sheets.googleapis.com/v4/spreadsheets/12AisxtgYgO2fN2tNzbzDNfX4hyAZvksyV2DtOInc5Ls/values:batchGet?ranges=" +
+      encodeURIComponent("'App Settings'!A1:H10000"),
+    { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true },
+  );
+  if (access.getResponseCode() !== 200)
+    throw Error("This account does not have access to the Budget Sheet.");
+  const rows = (JSON.parse(access.getContentText()).valueRanges || [])[0];
+  const owners = ((rows && rows.values) || [])
+    .slice(1)
+    .filter((row) => row[0])
+    .map((row) =>
+      Object.assign({}, JSON.parse(row[7] || "{}"), {
+        id: String(row[0]),
+        status: row[1],
+      }),
+    )
+    .filter((row) => row.kind === "owner");
+  const allowed = owners.length
+    ? owners.some(
+        (owner) =>
+          owner.status === "Active" &&
+          (owner.emails || []).some(
+            (value) => String(value).trim().toLowerCase() === email,
+          ),
+      )
+    : PEOPLE.indexOf(email) >= 0;
+  if (!allowed)
+    throw Error("This Google account is not assigned to an active owner.");
   return email;
 }
 function setup() {

@@ -31,11 +31,13 @@ test("screens request only their needed supporting collections", () => {
     "transactions",
     "tags",
     "accounts",
+    "settings",
   ]);
   assert.deepEqual(screenCollections("Budgets"), [
     "transactions",
     "tags",
     "accounts",
+    "settings",
     "budgets",
   ]);
   assert.equal(screenCollections("Transactions").includes("audit"), false);

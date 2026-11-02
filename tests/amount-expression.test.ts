@@ -30,5 +30,5 @@ test("invalid or unsafe amount expressions never execute code or produce nonposi
     "9".repeat(160),
     "1+".repeat(100),
   ])
-    assert.throws(() => amount(expression), undefined, expression);
+    assert.throws(() => amount(expression), Error, expression);
 });

@@ -1,3 +1,4 @@
+import { activeOwners, allOwners, accountOwners, ownerEmails } from "./owners";
 import { empty, Snapshot, RecordData } from "./finance";
 import { z } from "zod";
 const DB = "wealthtrack-browser-v1",
@@ -77,7 +78,15 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
       throw Error("Enter a valid date, description and positive amount.");
     if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type))
       throw Error("Select a transaction type.");
-    if (!["Ram", "Varsha", "Combined"].includes(r.person))
+    if (
+      ![
+        "Combined",
+        ...allOwners(data.settings).flatMap((owner) => [
+          owner.name,
+          ...(owner.aliases || []),
+        ]),
+      ].includes(r.person)
+    )
       throw Error("Select a person.");
     const tag = data.tags.find((t) => t.id === r.tagId);
     if (
@@ -131,6 +140,55 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
     (!Number.isFinite(r.amount) || r.amount <= 0)
   )
     throw Error("Enter a positive amount.");
+  if (entity === "accounts" && Array.isArray(r.ownerIds)) {
+    if (
+      !r.ownerIds.length ||
+      r.ownerIds.some(
+        (id: string) =>
+          !activeOwners(data.settings).some((owner) => owner.id === id),
+      )
+    )
+      throw Error("Choose at least one active account owner.");
+  }
+  if (entity === "settings" && r.kind === "owner") {
+    const others = allOwners(data.settings).filter(
+      (owner) => owner.id !== r.id && owner.status === "Active",
+    );
+    if (
+      others.some(
+        (owner) => owner.name.toLowerCase() === r.name.trim().toLowerCase(),
+      )
+    )
+      throw Error("An active owner already has this name.");
+    if (["Combined", "All accounts"].includes(r.name.trim()))
+      throw Error("Choose a different owner name.");
+    r.name = r.name.trim();
+    r.emails = ownerEmails(r);
+    if (
+      r.emails.some((email: string) => !/^\S+@\S+\.\S+$/.test(email)) ||
+      new Set(r.emails).size !== r.emails.length
+    )
+      throw Error("Enter valid, unique owner email addresses.");
+    if (
+      others.some((owner) =>
+        ownerEmails(owner).some((email) => r.emails.includes(email)),
+      )
+    )
+      throw Error("An email can belong to only one active owner.");
+    if (r.status !== "Active" && others.length === 0)
+      throw Error("Keep at least one active owner.");
+    if (
+      r.status !== "Active" &&
+      data.accounts.some(
+        (account) =>
+          account.status === "Active" &&
+          accountOwners(account, allOwners(data.settings)).includes(r.id),
+      )
+    )
+      throw Error(
+        "Reassign this owner’s active accounts before removing the owner.",
+      );
+  }
   if (entity === "accounts" && !Number.isFinite(Number(r.openingBalance || 0)))
     throw Error("Enter a valid opening balance.");
   if (
@@ -297,6 +355,8 @@ function apply(state: State, op: Operation): any {
     updatedBy: op.actor + " (unverified)",
   };
   if (old?.source === "google-sheet") r.localEdited = true;
+  if (key === "settings" && r.kind === "owner" && old && old.name !== r.name)
+    r.aliases = Array.from(new Set([...(old.aliases || []), old.name]));
   validate(key, r, state.data);
   if (key === "tags" && old && (old.name !== r.name || op.action === "merge")) {
     const target =

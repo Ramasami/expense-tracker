@@ -2,6 +2,13 @@
 import Analytics from "./analytics";
 import Receipts from "./receipts";
 import AmountField from "./amount-field";
+import {
+  activeOwners,
+  allOwners,
+  accountOwners,
+  ownerEmails,
+  belongsToOwner,
+} from "../lib/owners";
 import { amountFromExpression } from "../lib/amount-expression";
 import TagSelect from "./tag-select";
 import { usePullToRefresh } from "./pull-to-refresh";
@@ -356,6 +363,7 @@ export default function Home() {
       if (clientId.trim()) saveClientId(clientId);
       const session = await signInGoogle();
       setGoogleSession(session);
+      setPerson(session.ownerName || "Combined");
       await loadCachedData(session.email);
       await refreshSheet();
     } catch (e: any) {
@@ -397,6 +405,7 @@ export default function Home() {
         if (cancelled) return;
         if (restored) {
           setGoogleSession(restored);
+          setPerson(restored.ownerName || "Combined");
           await loadCachedData(restored.email);
           setAuthChecked(true);
           await refreshSheet();
@@ -498,8 +507,24 @@ export default function Home() {
       deleted,
     ],
   );
+  const owners = activeOwners(data.settings);
+  const ownerNames = owners.map((owner) => owner.name);
+  useEffect(() => {
+    if (
+      dataReady &&
+      person !== "Combined" &&
+      !activeOwners(data.settings).some((owner) => owner.name === person)
+    )
+      setPerson("Combined");
+  }, [data.settings, person, dataReady]);
   const range = period === "Custom Range" ? custom : dateRange(period);
-  const filtered = filterRows(data.transactions, person, ...range);
+  const filtered = filterRows(
+    data.transactions,
+    person,
+    ...range,
+    data.accounts,
+    allOwners(data.settings),
+  );
   const active = filtered.filter((r) => r.status !== "Deleted");
   const stats = totals(active);
   const duration = Math.max(
@@ -512,24 +537,39 @@ export default function Home() {
   const previousStart = new Date(Date.parse(range[0]) - duration * 86400000)
     .toISOString()
     .slice(0, 10);
+  const history = data.transactions.filter(
+    (row) => row.status !== "Deleted" && row.date <= range[1],
+  );
   const available =
     data.accounts
       .filter(
-        (a) =>
-          a.status === "Active" &&
+        (account) =>
+          account.status === "Active" &&
           (person === "Combined" ||
-            a.person === person ||
-            a.person === "Combined"),
+            accountOwners(account, allOwners(data.settings)).some((id) =>
+              owners.some((owner) => owner.id === id && owner.name === person),
+            )),
       )
-      .reduce((s, a) => s + Number(a.openingBalance || 0), 0) +
+      .reduce((sum, account) => sum + balance(account, history), 0) +
     totals(
-      data.transactions.filter(
-        (r) =>
-          r.date <= range[1] && (person === "Combined" || r.person === person),
+      history.filter(
+        (row) =>
+          !data.accounts.some(
+            (account) =>
+              account.id === row.account || account.name === row.account,
+          ) &&
+          belongsToOwner(row, person, data.accounts, allOwners(data.settings)),
       ),
     ).net;
   const previous = totals(
-    filterRows(data.transactions, person, previousStart, previousEnd),
+    filterRows(
+      data.transactions,
+      person,
+      previousStart,
+      previousEnd,
+      data.accounts,
+      allOwners(data.settings),
+    ),
   );
   const categories = Object.entries(
     active
@@ -630,7 +670,24 @@ export default function Home() {
       record: {
         status: "Active",
         date: today(),
-        person: person === "Combined" ? "Ram" : person,
+        person:
+          person === "Combined"
+            ? currentGoogleSession()?.ownerName || ownerNames[0] || "Combined"
+            : person,
+        ...(entity === "accounts"
+          ? {
+              ownerIds: [
+                owners.find(
+                  (owner) =>
+                    owner.name ===
+                    (person === "Combined"
+                      ? currentGoogleSession()?.ownerName
+                      : person),
+                )?.id,
+              ].filter(Boolean),
+            }
+          : {}),
+        ...(entity === "owners" ? { kind: "owner" } : {}),
         type: entity === "accounts" ? "Bank" : "Expense",
         payment: "UPI",
         color: "#ff385c",
@@ -647,6 +704,10 @@ export default function Home() {
     op = crypto.randomUUID(),
     targetId?: string,
   ) {
+    if (entity === "owners") {
+      entity = "settings";
+      record = { ...record, kind: "owner" };
+    }
     setSaving(true);
     try {
       if (
@@ -704,6 +765,20 @@ export default function Home() {
       if (staleRef.current || !currentGoogleSession()) return;
     }
     if (!modal.pending) {
+      if (modal.entity === "owners")
+        record.emails = String(values.emails || "")
+          .split(/[\s,;]+/)
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean);
+      if (modal.entity === "accounts") {
+        record.ownerIds = new FormData(e.currentTarget)
+          .getAll("ownerIds")
+          .map(String);
+        record.person =
+          record.ownerIds.length === 1
+            ? owners.find((owner) => owner.id === record.ownerIds[0])?.name
+            : "Combined";
+      }
       if (["transactions", "recurring"].includes(modal.entity)) {
         for (const field of ["account", "toAccount"]) {
           const name = String(record[field] || "").trim();
@@ -1137,10 +1212,15 @@ export default function Home() {
     if (!key) return null;
     const records = (data[key] as RecordData[]).filter(
       (r) =>
-        (person === "Combined" ||
-          !r.person ||
-          r.person === "Combined" ||
-          r.person === person) &&
+        (key === "accounts"
+          ? person === "Combined" ||
+            accountOwners(r, allOwners(data.settings)).some((id) =>
+              owners.some((owner) => owner.id === id && owner.name === person),
+            )
+          : person === "Combined" ||
+            !r.person ||
+            r.person === "Combined" ||
+            r.person === person) &&
         (!search ||
           [
             r.description,
@@ -1202,7 +1282,18 @@ export default function Home() {
                   <span className="chip">{r.status}</span>
                 </div>
                 <h3>{r.name}</h3>
-                <p>{r.description || r.person || r.type || "Household"}</p>
+                <p>
+                  {key === "accounts"
+                    ? allOwners(data.settings)
+                        .filter((owner) =>
+                          accountOwners(r, allOwners(data.settings)).includes(
+                            owner.id,
+                          ),
+                        )
+                        .map((owner) => owner.name)
+                        .join(", ")
+                    : r.description || r.person || r.type || "Household"}
+                </p>
                 {key === "accounts" ? (
                   <>
                     <strong className="entity-amount">
@@ -1293,12 +1384,20 @@ export default function Home() {
                     onClick={() =>
                       action(
                         key,
-                        r.status === "Active" ? "archive" : "restore",
+                        r.status === "Active"
+                          ? key === "accounts"
+                            ? "delete"
+                            : "archive"
+                          : "restore",
                         r,
                       )
                     }
                   >
-                    {r.status === "Active" ? "Archive" : "Restore"}
+                    {r.status === "Active"
+                      ? key === "accounts"
+                        ? "Delete"
+                        : "Archive"
+                      : "Restore"}
                   </button>
                   {key === "tags" && (
                     <button
@@ -1383,8 +1482,8 @@ export default function Home() {
             </button>
           )}
           <small>
-            Access is limited to Ram and Varsha. Financial records are loaded
-            from Google Sheets.
+            Sign in with an email assigned to an active owner who has access to
+            the Budget Sheet. Financial records are loaded from Google Sheets.
           </small>
         </section>
       </main>
@@ -1427,7 +1526,7 @@ export default function Home() {
             <span>V</span>
           </div>
           <div>
-            <b>Ram & Varsha</b>
+            <b>Your household</b>
             <small>Your shared financial space</small>
           </div>
         </div>
@@ -1524,7 +1623,7 @@ export default function Home() {
                 A LITTLE CLARITY. A BRIGHTER FUTURE.
               </div>
               <h1>
-                {page === "Dashboard" ? "Welcome home, Ram & Varsha" : page}
+                {page === "Dashboard" ? "Welcome home" : page}
                 <span className="coral">
                   {page === "Dashboard" ? " ☀" : ""}
                 </span>
@@ -1546,7 +1645,7 @@ export default function Home() {
           </div>
           <div className="filter-bar">
             <div className="segmented">
-              {["Ram", "Varsha", "Combined"].map((p) => (
+              {[...ownerNames, "Combined"].map((p) => (
                 <button
                   className={p === person ? "selected" : ""}
                   key={p}
@@ -1555,7 +1654,14 @@ export default function Home() {
                     setOffset(0);
                   }}
                 >
-                  {p === "Combined" && <span className="tiny-avatars">RV</span>}
+                  {p === "Combined" && (
+                    <span className="tiny-avatars" aria-hidden="true">
+                      {owners
+                        .slice(0, 2)
+                        .map((owner) => owner.name[0])
+                        .join("")}
+                    </span>
+                  )}
                   {p}
                 </button>
               ))}
@@ -1883,15 +1989,22 @@ export default function Home() {
                     <Wallet size={25} />
                   </div>
                   <div className="balance-grid">
-                    {["Ram", "Varsha", "Combined"].map((p) => (
+                    {[...ownerNames, "Combined"].map((p) => (
                       <div className="card" key={p}>
                         <span className="stat-label">
                           {p === "Combined" ? "Household" : p} cash movement
                         </span>
                         <strong>
                           {money(
-                            totals(filterRows(data.transactions, p, ...range))
-                              .net,
+                            totals(
+                              filterRows(
+                                data.transactions,
+                                p,
+                                ...range,
+                                data.accounts,
+                                allOwners(data.settings),
+                              ),
+                            ).net,
                           )}
                         </strong>
                         <small>
@@ -2172,6 +2285,75 @@ export default function Home() {
                 </section>
               )}
               {entities[page] && entityPage()}
+              {page === "Accounts & Ledgers" && (
+                <section className="owner-section">
+                  <div className="section-heading">
+                    <div>
+                      <h2>Owners</h2>
+                      <p>
+                        Assign accounts and map sign-in emails. Sheet access is
+                        required separately.
+                      </p>
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={stale || syncing || saving}
+                      onClick={() => open("owners")}
+                    >
+                      <Plus size={16} /> Add owner
+                    </button>
+                  </div>
+                  <div className="entity-grid">
+                    {allOwners(data.settings).map((owner) => (
+                      <article className="card entity-card" key={owner.id}>
+                        <span className="chip">{owner.status}</span>
+                        <h3>{owner.name}</h3>
+                        <p>
+                          {(owner.emails || []).join(", ") ||
+                            "No sign-in email assigned"}
+                        </p>
+                        <small>
+                          {
+                            data.accounts.filter(
+                              (account) =>
+                                account.status === "Active" &&
+                                accountOwners(
+                                  account,
+                                  allOwners(data.settings),
+                                ).includes(owner.id),
+                            ).length
+                          }{" "}
+                          accounts
+                        </small>
+                        <div className="entity-actions">
+                          <button
+                            disabled={stale || syncing || saving}
+                            onClick={() => open("owners", owner)}
+                          >
+                            <Pencil size={14} /> Edit owner
+                          </button>
+                          <button
+                            disabled={stale || syncing || saving}
+                            onClick={() =>
+                              action(
+                                "owners",
+                                owner.status === "Active"
+                                  ? "delete"
+                                  : "restore",
+                                owner,
+                              )
+                            }
+                          >
+                            {owner.status === "Active"
+                              ? "Remove owner"
+                              : "Restore owner"}
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
               {[
                 "Expense Analytics",
                 "Investments",
@@ -2312,8 +2494,13 @@ export default function Home() {
                 <Analytics
                   rows={active}
                   tags={data.tags}
-                  history={data.transactions.filter(
-                    (r) => person === "Combined" || r.person === person,
+                  history={data.transactions.filter((r) =>
+                    belongsToOwner(
+                      r,
+                      person,
+                      data.accounts,
+                      allOwners(data.settings),
+                    ),
                   )}
                   range={range}
                   onDrill={(tag, date) => {
@@ -2369,7 +2556,13 @@ export default function Home() {
                           String(r.timestamp).slice(0, 10) >= range[0] &&
                           String(r.timestamp).slice(0, 10) <= range[1] &&
                           (person === "Combined" ||
-                            String(r.actor).startsWith(person)),
+                            allOwners(data.settings)
+                              .filter((owner) => owner.name === person)
+                              .some((owner) =>
+                                ownerEmails(owner).includes(
+                                  String(r.actor).toLowerCase(),
+                                ),
+                              )),
                       )
                       .map((r) => (
                         <details key={r.id}>
@@ -2429,7 +2622,7 @@ export default function Home() {
                     "Tag Report",
                     "Merchant Report",
                     "Investment Contribution Report",
-                    "Ram vs Varsha Report",
+                    "Owner Comparison Report",
                     "Account Statement",
                     "Audit History Report",
                   ].map((title) => (
@@ -2502,7 +2695,7 @@ export default function Home() {
                       value={person}
                       onChange={(e) => setPerson(e.target.value)}
                     >
-                      {["Ram", "Varsha", "Combined"].map((p) => (
+                      {[...ownerNames, "Combined"].map((p) => (
                         <option key={p}>{p}</option>
                       ))}
                     </select>
@@ -2529,13 +2722,19 @@ export default function Home() {
                     className="primary"
                     disabled={setup || syncing}
                     onClick={() =>
-                      mutate("settings", data.settings[0] ? "edit" : "create", {
-                        ...data.settings[0],
-                        name: "Household preferences",
-                        theme,
-                        person,
-                        period,
-                      })
+                      mutate(
+                        "settings",
+                        data.settings.some((row) => row.kind !== "owner")
+                          ? "edit"
+                          : "create",
+                        {
+                          ...data.settings.find((row) => row.kind !== "owner"),
+                          name: "Household preferences",
+                          theme,
+                          person,
+                          period,
+                        },
+                      )
                     }
                   >
                     Save household preferences
@@ -2694,7 +2893,7 @@ export default function Home() {
           <footer>
             <span className="brand-small">budget tracker.</span>
             <span>A little more clarity. A lot more possibility.</span>
-            <span>Ram & Varsha’s shared space</span>
+            <span>Your shared space</span>
           </footer>
         </main>
       </div>
@@ -2783,7 +2982,7 @@ export default function Home() {
                       label="Person"
                       name="person"
                       value={modal.record.person}
-                      options={["Ram", "Varsha", "Combined"]}
+                      options={[...ownerNames, "Combined"]}
                     />
                     <Select
                       label="Payment method"
@@ -2870,6 +3069,20 @@ export default function Home() {
                           value={modal.record.icon || "#"}
                         />
                       </>
+                    ) : modal.entity === "owners" ? (
+                      <>
+                        <Field
+                          label="Sign-in email addresses"
+                          name="emails"
+                          value={(modal.record.emails || []).join(", ")}
+                          placeholder="name@example.com, another@example.com"
+                        />
+                        <p className="owner-help">
+                          Each email maps to one owner and must already have
+                          access to the Budget Sheet. Adding an email here does
+                          not share the Sheet.
+                        </p>
+                      </>
                     ) : modal.entity === "accounts" ? (
                       <>
                         <Select
@@ -2892,12 +3105,23 @@ export default function Home() {
                           step="0.01"
                           value={modal.record.openingBalance}
                         />
-                        <Select
-                          label="Owner"
-                          name="person"
-                          value={modal.record.person}
-                          options={["Ram", "Varsha", "Combined"]}
-                        />
+                        <fieldset className="owner-choices">
+                          <legend>Account owners</legend>
+                          {owners.map((owner) => (
+                            <label key={owner.id}>
+                              <input
+                                type="checkbox"
+                                name="ownerIds"
+                                value={owner.id}
+                                defaultChecked={accountOwners(
+                                  modal.record,
+                                  allOwners(data.settings),
+                                ).includes(owner.id)}
+                              />
+                              {owner.name}
+                            </label>
+                          ))}
+                        </fieldset>
                         <Field
                           label="Description"
                           name="description"
@@ -2918,7 +3142,7 @@ export default function Home() {
                           label="Person"
                           name="person"
                           value={modal.record.person}
-                          options={["Ram", "Varsha", "Combined"]}
+                          options={[...ownerNames, "Combined"]}
                         />
                         <TagSelect
                           label="Category"

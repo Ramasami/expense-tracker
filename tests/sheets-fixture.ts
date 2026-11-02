@@ -1,3 +1,4 @@
+import { INITIAL_OWNERS } from "../lib/owners";
 import assert from "node:assert/strict";
 import { CLOUD_TABS } from "../lib/google-sheets";
 const headers = [
@@ -109,6 +110,18 @@ export function fixture() {
     ],
   ];
   Object.values(CLOUD_TABS).forEach((t) => (grids[t] = [[...generic]]));
+  grids["App Settings"].push(
+    ...INITIAL_OWNERS.map((owner) => [
+      owner.id,
+      "Active",
+      1,
+      "",
+      "",
+      "",
+      "",
+      JSON.stringify(owner),
+    ]),
+  );
   const properties = Object.keys(grids).map((title, i) => ({
     title,
     sheetId: i + 1,

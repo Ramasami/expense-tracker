@@ -1,0 +1,61 @@
+export default function PrivacyPage() {
+  return (
+    <main
+      style={{
+        maxWidth: 720,
+        margin: "48px auto",
+        padding: "0 24px",
+        lineHeight: 1.7,
+      }}
+    >
+      <h1>Budget Tracker privacy policy</h1>
+      <p>
+        Budget Tracker is a shared household budgeting application. Google
+        sign-in verifies your email, checks your access to the configured Budget
+        Sheet, and matches your email to an active owner entry. Adding an owner
+        in the app does not grant Google Sheet access.
+      </p>
+      <h2>Data and storage</h2>
+      <p>
+        Financial records, account ownership, owner email mappings and audit
+        history are stored in the household’s Google Sheet. Bills and receipts
+        are stored privately in Google Drive and managed by the household’s
+        Google Apps Script receipt service. Authorized owners with Sheet access
+        can view and manage shared receipts through that service.
+      </p>
+      <p>
+        Your browser stores a short-lived Google access token and expiry to
+        maintain your session, appearance preferences, and a per-account offline
+        copy of confirmed Sheet data. The offline copy is marked stale when it
+        cannot be refreshed and is not used for offline edits. Receipt image and
+        PDF bytes are not cached for offline use.
+      </p>
+      <h2>Google access</h2>
+      <p>
+        The app uses Google account identity, Google Sheets access for reading
+        and updating your budget, and file access for receipts. Google
+        credentials and financial records are sent to Google services for these
+        functions. GitHub Pages hosts the public application files. The app does
+        not sell Google user data, use it for advertising, or transmit it to an
+        analytics service.
+      </p>
+      <h2>Your controls</h2>
+      <p>
+        Sign out to remove the saved session credential. Clear this site’s
+        browser data to remove offline copies and preferences. You can revoke
+        the app’s access in your Google Account settings. Manage Sheet access
+        separately in Google sharing settings; remove an owner’s email mapping
+        to disable their next online app authorization. Google cannot recheck
+        revoked access during an offline session, which remains limited by the
+        saved token’s expiry.
+      </p>
+      <p>
+        Deleting a receipt in the app moves its Drive file to Trash and removes
+        the Sheet link after confirmation. Google Drive’s recovery and Trash
+        retention rules apply. Account and owner removal retains historical
+        records for audit and can be reversed. Contact the owner of your Budget
+        Sheet for access, corrections, or deletion of household data.
+      </p>
+    </main>
+  );
+}

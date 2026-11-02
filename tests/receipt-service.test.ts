@@ -5,6 +5,7 @@ import vm from "node:vm";
 function service(
   email = "ramasami.official@gmail.com",
   aud = "596898834710-uimpamt17opolc3u06n78i6t9vhq0efj.apps.googleusercontent.com",
+  ownerConfig?: { email: string; active?: boolean; sheetAccess?: boolean },
 ) {
   const files: any = {
     "shared-receipt": {
@@ -42,7 +43,38 @@ function service(
         if (url.includes("tokeninfo")) data = { aud, expires_in: 3600 };
         else if (url.includes("userinfo"))
           data = { email, email_verified: true };
-        else {
+        else if (url.includes("sheets.googleapis.com")) {
+          assert.equal(
+            options.headers.Authorization,
+            "Bearer valid-user-token",
+          );
+          if (ownerConfig?.sheetAccess === false)
+            return { getResponseCode: () => 403, getContentText: () => "{}" };
+          data = {
+            valueRanges: [
+              {
+                values: ownerConfig
+                  ? [
+                      ["ID"],
+                      [
+                        "owner-x",
+                        ownerConfig.active === false ? "Deleted" : "Active",
+                        1,
+                        "",
+                        "",
+                        "",
+                        "",
+                        JSON.stringify({
+                          kind: "owner",
+                          emails: [ownerConfig.email],
+                        }),
+                      ],
+                    ]
+                  : [],
+              },
+            ],
+          };
+        } else {
           const id = url.match(/files\/([\w-]+)/)?.[1];
           const file = files[id || ""];
           if (!file) throw Error("No file");
@@ -111,4 +143,20 @@ test("service rejects malformed/anonymous requests and exposes no owner token", 
   assert.equal(s.run("delete-permanently").ok, false);
   assert.equal(s.changes.length, 0);
   assert.equal(JSON.stringify(s.run("info")).includes("owner-token"), false);
+});
+
+test("new receipt users require both active owner membership and access to the actual Sheet", () => {
+  const allowed = service("new@example.com", undefined, {
+    email: "new@example.com",
+  });
+  assert.equal(allowed.run("trash").ok, true);
+  for (const config of [
+    { email: "new@example.com", sheetAccess: false },
+    { email: "new@example.com", active: false },
+    { email: "other@example.com" },
+  ]) {
+    const denied = service("new@example.com", undefined, config);
+    assert.equal(denied.run("trash").ok, false);
+    assert.equal(denied.changes.length, 0);
+  }
 });

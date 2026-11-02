@@ -8,6 +8,10 @@ async function login(page: import("@playwright/test").Page) {
     .getByRole("button", { name: "Sign in with Google", exact: true })
     .click();
   await expect(page.locator(".sync")).toContainText("Google connected");
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Combined", exact: true })
+    .click();
 }
 test("login survives refresh, fetches new sheet values, and sign-out hides data", async ({
   page,
@@ -62,7 +66,7 @@ test("failed reads show a marked read-only cache, including after reload", async
   ).toBeDisabled();
   await page.reload();
   await expect(page.locator(".main .alert")).toContainText(
-    "Sheets unavailable",
+    /Sheets unavailable|offline/i,
   );
   await expect(page.locator(".offline-banner")).toBeVisible();
   await expect(
@@ -109,9 +113,9 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
     .locator("nav")
     .getByRole("button", { name: "Accounts & Ledgers", exact: true })
     .click();
-  await expect(page.locator(".entity-card")).not.toContainText(
-    "Must not save locally",
-  );
+  await expect(
+    page.locator(".entity-card").filter({ hasText: "Must not save locally" }),
+  ).toHaveCount(0);
 });
 test("transaction accounts accept text; search, combined filters and sorting use sheet data", async ({
   page,
@@ -495,7 +499,7 @@ test("pull-to-refresh requests just the visible screen and does not poll Sheets"
 }) => {
   const { f, state } = await mockGoogle(page);
   await login(page);
-  expect(state.ranges.at(-1)).toHaveLength(3);
+  expect(state.ranges.at(-1)).toHaveLength(4);
   expect(state.ranges.at(-1)?.join(" ")).not.toContain("Audit Log");
   const before = state.sheetRequests;
   await page
@@ -633,6 +637,10 @@ for (const uploader of [
         : "ramasami.official@gmail.com";
     await page.reload();
     await expect(page.locator(".sync")).toContainText("Google connected");
+    await page
+      .locator(".segmented")
+      .getByRole("button", { name: "Combined", exact: true })
+      .click();
     await page
       .locator("nav")
       .getByRole("button", { name: /^Transactions/ })
@@ -1002,4 +1010,120 @@ test("touch devices keep a fixed viewport and block pinch gestures without block
   });
   expect(gestures).toEqual({ pinch: true, single: false });
   await context.close();
+});
+
+for (const sheetAccess of [true, false])
+  test(`a new owner email ${sheetAccess ? "can" : "cannot"} sign in ${sheetAccess ? "with" : "without"} Sheet access`, async ({
+    page,
+  }) => {
+    const { f, state } = await mockGoogle(page);
+    state.email = "xyz@example.com";
+    state.sheetAccess = sheetAccess;
+    f.grids["App Settings"].push([
+      "owner-xyz",
+      "Active",
+      1,
+      "",
+      "",
+      "",
+      "",
+      JSON.stringify({
+        name: "XYZ",
+        kind: "owner",
+        emails: ["xyz@example.com"],
+      }),
+    ]);
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Sign in with Google", exact: true })
+      .click();
+    if (sheetAccess) {
+      await expect(page.locator(".sync")).toContainText("Google connected");
+      await expect(page.locator(".segmented .selected")).toHaveText("XYZ");
+    } else {
+      await expect(page.locator(".auth-screen [role=alert]")).toContainText(
+        "not authorized",
+      );
+      await expect(page.locator("nav")).toHaveCount(0);
+      expect(state.sheetRequests).toBe(0);
+    }
+  });
+
+test("owner and account management supports creating, renaming, multiple owners and removing account associations", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Accounts & Ledgers", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add owner", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name", { exact: true }).fill("XYZ");
+  await dialog
+    .getByLabel("Sign-in email addresses", { exact: true })
+    .fill("xyz@example.com");
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".owner-section")).toContainText("XYZ");
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name", { exact: true }).fill("Joint HDFC");
+  await dialog.getByLabel("XYZ", { exact: true }).check();
+  await dialog.getByLabel("Opening balance (₹)", { exact: true }).fill("100");
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const first = JSON.parse(f.grids.Accounts[1][7]);
+  expect(first.ownerIds).toContain("owner-ram");
+  expect(first.ownerIds).toHaveLength(2);
+  const card = page.locator(".entity-card").filter({
+    has: page.getByRole("heading", { name: "Joint HDFC", exact: true }),
+  });
+  await card.getByRole("button", { name: "Edit", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name", { exact: true }).fill("XYZ HDFC");
+  await dialog.getByLabel("Ram", { exact: true }).uncheck();
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(JSON.parse(f.grids.Accounts[1][7]).ownerIds).toHaveLength(1);
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "XYZ", exact: true })
+    .click();
+  await expect(
+    page.locator(".entity-card").filter({
+      has: page.getByRole("heading", { name: "XYZ HDFC", exact: true }),
+    }),
+  ).toBeVisible();
+  page.once("dialog", (message) => message.accept());
+  await page
+    .locator(".entity-card")
+    .filter({
+      has: page.getByRole("heading", { name: "XYZ HDFC", exact: true }),
+    })
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect.poll(() => f.grids.Accounts[1][1]).toBe("Deleted");
+  const owner = page
+    .locator(".owner-section .entity-card")
+    .filter({ has: page.getByRole("heading", { name: "XYZ", exact: true }) });
+  page.once("dialog", (message) => message.accept());
+  await owner
+    .getByRole("button", { name: "Remove owner", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      f.grids["App Settings"].some(
+        (row) =>
+          row[1] === "Deleted" && JSON.parse(row[7] || "{}").name === "XYZ",
+      ),
+    )
+    .toBe(true);
 });

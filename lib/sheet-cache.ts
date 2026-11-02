@@ -84,7 +84,7 @@ export async function writeSheetCache(
   }
 }
 export function screenCollections(page: string): Collection[] {
-  const base: Collection[] = ["transactions", "tags", "accounts"];
+  const base: Collection[] = ["transactions", "tags", "accounts", "settings"];
   const extra: Record<string, Collection[]> = {
     Investments: ["holdings"],
     Budgets: ["budgets"],
@@ -95,5 +95,5 @@ export function screenCollections(page: string): Collection[] {
     Reports: ["audit"],
     Settings: ["settings"],
   };
-  return [...base, ...(extra[page] || [])];
+  return [...new Set([...base, ...(extra[page] || [])])];
 }

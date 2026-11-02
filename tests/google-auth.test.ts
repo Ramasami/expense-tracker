@@ -45,6 +45,8 @@ test("Google sign-in accepts only the two verified approved accounts and clears 
     removeItem: (key: string) => authStorage.delete(key),
   };
   globalThis.fetch = async (input) => {
+    if (String(input).includes("sheets.googleapis.com"))
+      return Response.json({ valueRanges: [{ values: [] }] });
     assert.equal(
       String(input),
       "https://www.googleapis.com/oauth2/v3/userinfo",

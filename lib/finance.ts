@@ -1,3 +1,4 @@
+import { belongsToOwner } from "./owners";
 export type RecordData = {
   id: string;
   version: number;
@@ -109,12 +110,16 @@ export function filterRows(
   person: string,
   start: string,
   end: string,
+  accounts?: RecordData[],
+  owners?: RecordData[],
 ) {
   return rows.filter(
     (r) =>
       r.date >= start &&
       r.date <= end &&
-      (person === "Combined" || r.person === person),
+      (accounts && owners
+        ? belongsToOwner(r, person, accounts, owners)
+        : person === "Combined" || r.person === person),
   );
 }
 export function csv(rows: Record<string, unknown>[]) {

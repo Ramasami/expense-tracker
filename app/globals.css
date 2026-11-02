@@ -2102,3 +2102,34 @@ fieldset.form-grid {
     font-size: 16px;
   }
 }
+.owner-section {
+  margin-top: 30px;
+}
+.owner-help {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.owner-choices {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+.owner-choices legend {
+  font-size: 11px;
+  color: var(--muted);
+}
+.owner-choices label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.segmented button {
+  flex-shrink: 0;
+}

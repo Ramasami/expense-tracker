@@ -10,7 +10,7 @@ export const viewport: Viewport = {
 };
 export const metadata = {
   title: "Budget Tracker · A little clarity. A brighter future.",
-  description: "Ram and Varsha’s household finances, thoughtfully together.",
+  description: "Your household finances, thoughtfully together.",
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (

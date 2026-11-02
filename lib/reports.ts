@@ -1,3 +1,4 @@
+import { belongsToOwner } from "./owners";
 import { RecordData, totals } from "./finance";
 export function group(rows: RecordData[], field: string) {
   const groups: Record<string, RecordData[]> = {};
@@ -13,7 +14,13 @@ export function group(rows: RecordData[], field: string) {
     }))
     .sort((a, b) => b.expense - a.expense);
 }
-export function report(title: string, rows: RecordData[], audit: RecordData[]) {
+export function report(
+  title: string,
+  rows: RecordData[],
+  audit: RecordData[],
+  accounts?: RecordData[],
+  owners?: RecordData[],
+) {
   switch (title) {
     case "Audit History Report":
       return audit;
@@ -35,7 +42,21 @@ export function report(title: string, rows: RecordData[], audit: RecordData[]) {
         contributions: g.investment,
       }));
     case "Ram vs Varsha Report":
-      return group(rows, "person");
+    case "Owner Comparison Report":
+      return accounts && owners
+        ? owners
+            .filter((owner) => owner.status === "Active")
+            .map((owner) => {
+              const matched = rows.filter((row) =>
+                belongsToOwner(row, owner.name, accounts, owners),
+              );
+              return {
+                name: owner.name,
+                count: matched.length,
+                ...totals(matched),
+              };
+            })
+        : group(rows, "person");
     case "Account Statement":
       return rows
         .filter((r) => r.account)

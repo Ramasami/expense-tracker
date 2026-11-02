@@ -1,14 +1,14 @@
+import { SHEET_ID } from "./public-sheet";
+import { INITIAL_OWNERS, ownerEmails } from "./owners";
 const SCOPE =
   "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file openid email profile";
-const ALLOWED_EMAILS = new Set([
-  "ramasami.official@gmail.com",
-  "tnvarsha.99@gmail.com",
-]);
 export type GoogleSession = {
   email: string;
   name: string;
   expiresAt: number;
   offline?: boolean;
+  ownerId?: string;
+  ownerName?: string;
 };
 let token = "";
 let session: GoogleSession | null = null;
@@ -59,13 +59,54 @@ async function verifyProfile(
   const email = String(profile.email || "")
     .trim()
     .toLowerCase();
-  if (profile.email_verified !== true || !ALLOWED_EMAILS.has(email))
+  if (profile.email_verified !== true || !email)
     throw Error(
       "This Google account is not authorized. Sign in with Ram's or Varsha's approved account.",
     );
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() + 30000)
     throw Error("Your Google session expired. Sign in again.");
-  return { email, name: profile.name || email, expiresAt };
+  const access = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchGet?ranges=${encodeURIComponent("'App Settings'!A1:H10000")}`,
+    {
+      headers: { Authorization: "Bearer " + accessToken },
+      cache: "no-store",
+      signal: AbortSignal.timeout(20000),
+    },
+  );
+  if (access.status >= 500 || access.status === 429)
+    throw new TypeError(
+      "Sheet access could not be checked. Reconnect and retry.",
+    );
+  if (!access.ok)
+    throw Error(
+      "This Google account is not authorized to access the Budget Sheet. Ask the Sheet owner for access.",
+    );
+  const rows = (await access.json()).valueRanges?.[0]?.values || [];
+  const registered = rows
+    .slice(1)
+    .filter((row: any[]) => row[0])
+    .map((row: any[]) => ({
+      ...JSON.parse(row[7] || "{}"),
+      id: String(row[0]),
+      status: row[1] || "Active",
+    }))
+    .filter((row: any) => row.kind === "owner");
+  const owners = registered.length ? registered : INITIAL_OWNERS;
+  const owner = owners.find(
+    (owner: any) =>
+      owner.status === "Active" && ownerEmails(owner).includes(email),
+  );
+  if (!owner)
+    throw Error(
+      "This Google account is not authorized. Add its email to an active owner in the Budget Sheet first.",
+    );
+  return {
+    email,
+    name: profile.name || email,
+    expiresAt,
+    ownerId: owner.id,
+    ownerName: owner.name,
+  };
 }
 export async function restoreGoogleSession(): Promise<GoogleSession | null> {
   try {
@@ -85,7 +126,11 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
     // Never trust an identity stored by the browser: revalidate it with Google.
     const offlineProfile = () => {
       if (
-        !ALLOWED_EMAILS.has(saved.verifiedEmail) ||
+        !saved.verifiedEmail ||
+        (!saved.ownerId &&
+          !INITIAL_OWNERS.some((owner) =>
+            ownerEmails(owner).includes(saved.verifiedEmail),
+          )) ||
         !Number.isFinite(saved.verifiedAt) ||
         saved.verifiedAt > Date.now()
       )
@@ -97,6 +142,16 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
         name: String(saved.displayName || saved.verifiedEmail),
         expiresAt: saved.expiresAt,
         offline: true,
+        ownerId:
+          saved.ownerId ||
+          INITIAL_OWNERS.find((owner) =>
+            ownerEmails(owner).includes(saved.verifiedEmail),
+          )?.id,
+        ownerName:
+          saved.ownerName ||
+          INITIAL_OWNERS.find((owner) =>
+            ownerEmails(owner).includes(saved.verifiedEmail),
+          )?.name,
       };
     };
     let verified: GoogleSession;
@@ -124,6 +179,8 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
         expiresAt: saved.expiresAt,
         verifiedEmail: verified.email,
         displayName: verified.name,
+        ownerId: verified.ownerId,
+        ownerName: verified.ownerName,
         verifiedAt: verified.offline ? saved.verifiedAt : Date.now(),
       }),
     );
@@ -193,6 +250,8 @@ export function signInGoogle(): Promise<GoogleSession> {
               expiresAt,
               verifiedEmail: verified.email,
               displayName: verified.name,
+              ownerId: verified.ownerId,
+              ownerName: verified.ownerName,
               verifiedAt: Date.now(),
             }),
           );
