@@ -567,15 +567,7 @@ export default function Home() {
   const stats = totals(active);
   const currentBalance = visibleAccounts
     .filter((account) => !scopedAccount || account.id === scopedAccount)
-    .reduce((sum, account) => {
-      const confirmed = account.balanceConfirmation?.amount;
-      return (
-        sum +
-        (typeof confirmed === "number" && Number.isFinite(confirmed)
-          ? confirmed
-          : balance(account, data.transactions))
-      );
-    }, 0);
+    .reduce((sum, account) => sum + balance(account, data.transactions), 0);
 
   const outstandingCredit = unpaidCredit(
     data.transactions,
@@ -1979,7 +1971,7 @@ export default function Home() {
                         {money(currentBalance)}
                       </strong>
                       <span className="comparison">
-                        Available balances · independent of report dates
+                        Current account balances · independent of report dates
                       </span>
                     </button>
                     {card(

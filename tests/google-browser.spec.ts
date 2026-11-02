@@ -1584,7 +1584,7 @@ test("unknown statement charges can be reviewed and explicitly confirmed unpaid"
   await expect(page.locator(".credit-charge")).toHaveCount(0);
 });
 
-test("account balances appear across screens and distinguish confirmed bank balances from unreconciled ledger totals", async ({
+test("account balances use current Sheet transactions across screens instead of fixed confirmations", async ({
   page,
 }) => {
   const { f } = await mockGoogle(page);
@@ -1605,18 +1605,17 @@ test("account balances appear across screens and distinguish confirmed bank bala
     name: "Ram HDFC balance",
     exact: true,
   });
-  await expect(ram).toContainText("₹1,500");
-  await expect(ram).toContainText("Ledger: ₹1,750");
-  await expect(ram).toContainText("₹250 higher");
+  await expect(ram).toContainText("₹1,750");
+  await expect(ram).not.toContainText("Reconciliation needed");
   await expect(
     page.getByRole("button", { name: /Current Balance/ }),
-  ).toContainText("₹1,500");
+  ).toContainText("₹1,750");
   for (const name of ["Transactions", "Loan Tracker", "Accounts"]) {
     await page
       .locator("nav")
       .getByRole("button", { name: new RegExp(`^${name}`) })
       .click();
-    await expect(ram).toContainText("₹1,500");
+    await expect(ram).toContainText("₹1,750");
   }
   await page
     .locator(".segmented")
@@ -1634,7 +1633,7 @@ test("account balances appear across screens and distinguish confirmed bank bala
   ).toBe(true);
 });
 
-test("confirmed loan withholding explains available balance without creating an expense", async ({
+test("balances follow Sheet changes after sync and do not deduct historical withholding again", async ({
   page,
 }) => {
   const { f } = await mockGoogle(page);
@@ -1652,12 +1651,21 @@ test("confirmed loan withholding explains available balance without creating an 
     name: "Ram HDFC balance",
     exact: true,
   });
-  await expect(card).toContainText("₹1,500");
-  await expect(card).toContainText("Loan amount withheld: ₹250");
-  await expect(card).toContainText(
-    "Ledger less withholding matches available balance",
-  );
-  await expect(card).not.toContainText("Reconciliation needed");
+  await expect(card).toContainText("₹1,750");
+  await expect(card).not.toContainText("Loan amount withheld");
+  // A later expense changes the live balance; the historical bank confirmation stays unchanged.
+  f.grids["Expense Ledger"][1][4] = 350;
+  await page.getByRole("button", { name: "Refresh data", exact: true }).click();
+  await expect(card).toContainText("₹1,650");
+  await expect(
+    page.getByRole("button", { name: /Current Balance/ }),
+  ).toContainText("₹1,650");
+  f.grids["Expense Ledger"][1][11] = "Deleted";
+  await page.getByRole("button", { name: "Refresh data", exact: true }).click();
+  await expect(card).toContainText("₹2,000");
+  await expect(
+    page.getByRole("button", { name: /Current Balance/ }),
+  ).toContainText("₹2,000");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page.evaluate(
