@@ -72,6 +72,13 @@ export async function saveScannerKey(
 ): Promise<{ configured: boolean; canConfigure: boolean; model: string }> {
   return service("configureScanner", { apiKey });
 }
+export async function testScannerKey(): Promise<{
+  ok: boolean;
+  model: string;
+  testedAt: string;
+}> {
+  return service("testScannerKey");
+}
 function dataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

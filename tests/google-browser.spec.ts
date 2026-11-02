@@ -2908,3 +2908,110 @@ test("Upload CSV offers a downloadable example with compatible headers", async (
   expect(response.ok()).toBe(true);
   expect(await response.text()).toContain("Date,Description,Debit,Credit");
 });
+
+test("Settings explicitly tests the saved API key and fits desktop and phone", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  let tests = 0;
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const request = route.request().postDataJSON();
+    if (request.action === "scannerStatus")
+      return route.fulfill({
+        json: {
+          ok: true,
+          result: {
+            configured: true,
+            canConfigure: true,
+            model: "gpt-4.1-mini",
+          },
+        },
+      });
+    expect(request.action).toBe("testScannerKey");
+    expect(Object.keys(request).sort()).toEqual(["action", "token"]);
+    tests++;
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          ok: true,
+          model: "gpt-4.1-mini",
+          testedAt: "2026-11-03T00:00:00Z",
+        },
+      },
+    });
+  });
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  const button = page.getByRole("button", {
+    name: "Test saved API key",
+    exact: true,
+  });
+  await expect(button).toBeEnabled();
+  expect(tests).toBe(0);
+  await button.click();
+  await expect(page.locator(".scanner-settings [role=status]")).toContainText(
+    "Connection successful",
+  );
+  expect(tests).toBe(1);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(button).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page
+      .locator(".scanner-settings")
+      .screenshot({
+        path: `work/key-test-settings-${width}.png`,
+        animations: "disabled",
+      });
+  }
+});
+
+test("Settings shows key-test quota errors without clearing its saved configuration", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await page.route("https://script.google.com/macros/s/**/exec", (route) =>
+    route.fulfill({
+      json:
+        route.request().postDataJSON().action === "scannerStatus"
+          ? {
+              ok: true,
+              result: {
+                configured: true,
+                canConfigure: true,
+                model: "gpt-4.1-mini",
+              },
+            }
+          : {
+              ok: false,
+              error:
+                "Your OpenAI API quota or billing allowance is exhausted (HTTP 429). Check API credits.",
+            },
+    }),
+  );
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Test saved API key", exact: true })
+    .click();
+  await expect(page.locator(".scanner-settings [role=alert]")).toContainText(
+    "quota or billing allowance",
+  );
+  await expect(page.locator(".scanner-settings [role=status]")).toContainText(
+    "Configured",
+  );
+  await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveValue(
+    "",
+  );
+});

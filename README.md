@@ -286,3 +286,8 @@ The import dialog has **Upload CSV** and **Upload using AI** tabs. **Download sa
 `npm install`/`npm ci` installs the local pre-commit hook via the prepare script (skipped in CI). The hook regenerates context from the **staged tree** and stages only that generated file, preserving unrelated unstaged work. A user's different existing Git hook configuration is respected; use `npm run hooks:install` to check installation. Both Pages and release CI workflows fail on stale context, so changes made without local hooks must include a `docs:sync` refresh.
 
 The automatic document is a current source inventory, not an AI-written behavioral changelog. README and architecture explanations still need intentional updates when rules change; AGENTS and skills.MD explicitly require that. No OpenAI calls, API keys or real financial data are used for documentation generation.
+
+
+### Test the saved OpenAI API key
+
+In **Settings → AI bill & statement scanner**, choose **Test saved API key** after a key is configured. It sends a fixed, tiny Responses request using the same saved key/model, with `store:false` and a 16-token output cap. This is a billable API request; no statement, image or financial data is sent. Successful tests show the model and test time. Invalid/revoked keys, model permissions, billing/quota and temporary rate limits show sanitized actionable messages. Tests run only on explicit clicks, never automatically, and are limited server-side to one per minute per authorized owner. A test checks Responses/model access; it does not guarantee every document will parse correctly.

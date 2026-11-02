@@ -3375,3 +3375,19 @@ select:disabled {
   height: 18px;
   accent-color: var(--teal);
 }
+
+.scanner-test-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.scanner-test-actions > small {
+  flex: 1 1 240px;
+}
+@media (max-width: 600px) {
+  .scanner-test-actions > button {
+    width: 100%;
+  }
+}

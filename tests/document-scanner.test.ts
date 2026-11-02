@@ -269,3 +269,45 @@ test("scans validate inferred document details and only auto-match an unambiguou
   assert.match(sent.instructions, /"dateFormat":"MDY"/);
   assert.match(sent.instructions, /rather than guessing/);
 });
+
+test("saved-key tests use a tiny fixed request without exposing keys or changing finance data", () => {
+  const { sandbox, calls, props } = scanner();
+  const result = sandbox.testScannerKey_("owner");
+  assert.equal(result.ok, true);
+  assert.equal(result.model, "gpt-4.1-mini");
+  assert.ok(!JSON.stringify(result).includes("server-test-key"));
+  const sent = JSON.parse(calls[0].options.payload);
+  assert.deepEqual(sent, {
+    model: "gpt-4.1-mini",
+    store: false,
+    max_output_tokens: 16,
+    input: "Reply with OK.",
+  });
+  assert.equal(props.get("OPENAI_API_KEY"), "server-test-key");
+  assert.throws(() => sandbox.testScannerKey_("owner"), /Wait .* seconds/);
+  assert.equal(calls.length, 1);
+  assert.equal(props.has("scan-count:2026-11-02:owner"), false);
+});
+
+test("saved-key tests reject missing keys and report billing failures safely", () => {
+  const missing = scanner(false);
+  assert.throws(
+    () => missing.sandbox.testScannerKey_("owner"),
+    /No saved OpenAI API key/,
+  );
+  assert.equal(missing.calls.length, 0);
+  const { sandbox, calls } = scanner(true, 429, {
+    code: "insufficient_quota",
+    message: "server-test-key private provider detail",
+  });
+  assert.throws(
+    () => sandbox.testScannerKey_("owner"),
+    (error: any) => {
+      assert.match(error.message, /quota or billing allowance/);
+      assert.ok(!error.message.includes("server-test-key"));
+      assert.ok(!error.message.includes("private provider"));
+      return true;
+    },
+  );
+  assert.equal(calls.length, 1);
+});

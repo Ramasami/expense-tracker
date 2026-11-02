@@ -30,6 +30,8 @@ function doPost(e) {
             ) || "gpt-4.1-mini",
         },
       });
+    if (req.action === "testScannerKey")
+      return json_({ ok: true, result: testScannerKey_(actor) });
     if (req.action === "configureScanner")
       return json_({ ok: true, result: configureScanner_(req, actor) });
     if (req.action === "analyzeDocuments")
@@ -621,4 +623,64 @@ function scannerProviderError_(response) {
     status +
     "). Check model access and API settings, or try again later."
   );
+}
+
+// Explicit user action only. Test the same Responses endpoint/model as scanning,
+// with a fixed tiny input and no documents, ledger data or provider text returned.
+function testScannerKey_(actor) {
+  const props = PropertiesService.getScriptProperties();
+  const key = props.getProperty("OPENAI_API_KEY");
+  if (!key) throw Error("No saved OpenAI API key. Add one in Settings first.");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000))
+    throw Error("Scanner settings are busy. Retry shortly.");
+  try {
+    const lastKey = "scanner-key-test:" + actor;
+    const previous = Number(props.getProperty(lastKey) || 0);
+    const remaining = 60000 - (Date.now() - previous);
+    if (remaining > 0)
+      throw Error(
+        "Wait " +
+          Math.ceil(remaining / 1000) +
+          " seconds before testing again.",
+      );
+    props.setProperty(lastKey, String(Date.now()));
+  } finally {
+    lock.releaseLock();
+  }
+  const model = props.getProperty("OPENAI_MODEL") || "gpt-4.1-mini";
+  let response;
+  try {
+    response = UrlFetchApp.fetch("https://api.openai.com/v1/responses", {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + key },
+      payload: JSON.stringify({
+        model: model,
+        store: false,
+        max_output_tokens: 16,
+        input: "Reply with OK.",
+      }),
+      muteHttpExceptions: true,
+    });
+  } catch (_) {
+    throw Error(
+      "Could not reach OpenAI to test the saved key. Try again when connected.",
+    );
+  }
+  if (response.getResponseCode() !== 200)
+    throw Error(scannerProviderError_(response));
+  let data;
+  try {
+    data = JSON.parse(response.getContentText());
+  } catch (_) {
+    throw Error(
+      "OpenAI returned an unreadable key-test result. Try again later.",
+    );
+  }
+  if (data.status !== "completed")
+    throw Error(
+      "OpenAI accepted the request but did not complete the key test. Check the configured model and retry later.",
+    );
+  return { ok: true, model: model, testedAt: new Date().toISOString() };
 }

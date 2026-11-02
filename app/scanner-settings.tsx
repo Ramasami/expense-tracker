@@ -1,11 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { scannerStatus, saveScannerKey } from "../lib/document-scanner";
+import {
+  scannerStatus,
+  saveScannerKey,
+  testScannerKey,
+} from "../lib/document-scanner";
 export default function ScannerSettings({ disabled }: { disabled: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Awaited<
     ReturnType<typeof scannerStatus>
   > | null>(null);
+  const [testing, setTesting] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
@@ -39,6 +44,36 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
                 ? "Add your OpenAI API key once to enable scanning."
                 : "Scanner configuration unavailable.")}
       </p>
+      <div className="scanner-test-actions">
+        <button
+          type="button"
+          disabled={disabled || busy || testing || !status?.configured}
+          onClick={async () => {
+            if (disabled || busy || testing || !status?.configured) return;
+            setTesting(true);
+            setError("");
+            setMessage("Testing saved API key…");
+            try {
+              const result = await testScannerKey();
+              if (!result.ok) throw Error("The key test did not succeed.");
+              setMessage(
+                `Connection successful · saved key works with ${result.model}. Tested ${new Date(result.testedAt).toLocaleTimeString()}.`,
+              );
+            } catch (error) {
+              setMessage("");
+              setError((error as Error).message);
+            } finally {
+              setTesting(false);
+            }
+          }}
+        >
+          {testing ? "Testing…" : "Test saved API key"}
+        </button>
+        <small>
+          Sends one tiny paid AI request using the saved key. No files or
+          financial data are sent. Tests are limited to once per minute.
+        </small>
+      </div>
       {status?.canConfigure && (
         <div className="scanner-key-editor">
           <h4>
@@ -64,7 +99,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
             autoComplete="off"
             onSubmit={async (event) => {
               event.preventDefault();
-              if (busy || disabled || !input.current) return;
+              if (busy || testing || disabled || !input.current) return;
               let key = input.current.value.trim();
               input.current.value = "";
               setBusy(true);
@@ -103,10 +138,10 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
                     ? "Already saved · enter only to replace"
                     : "sk-…"
                 }
-                disabled={disabled || busy}
+                disabled={disabled || busy || testing}
               />
             </label>
-            <button className="primary" disabled={disabled || busy}>
+            <button className="primary" disabled={disabled || busy || testing}>
               {busy ? "Saving…" : "Save API key securely"}
             </button>
           </form>
@@ -114,7 +149,8 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
             Sent once over HTTPS to your authenticated Apps Script service.
             Never stored in browser storage, the Sheet or backups, and never
             returned to the app. Saving stores the key; permissions and billing
-            are checked when you scan. API billing is separate from ChatGPT.
+            are checked when you scan or test the saved key. API billing is
+            separate from ChatGPT.
           </small>
         </div>
       )}
@@ -126,7 +162,10 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
       )}
       {error && <p role="alert">{error}</p>}
       {(!status || error) && (
-        <button disabled={busy || disabled} onClick={() => void check()}>
+        <button
+          disabled={busy || disabled || testing}
+          onClick={() => void check()}
+        >
           Check scanner settings again
         </button>
       )}
