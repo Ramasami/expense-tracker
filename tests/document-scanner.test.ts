@@ -311,3 +311,383 @@ test("saved-key tests reject missing keys and report billing failures safely", (
   );
   assert.equal(calls.length, 1);
 });
+
+test("provider selection is owner-only, allowlisted and preserves both saved keys", () => {
+  const { sandbox, props } = scanner();
+  const owner = "ramasami.official@gmail.com";
+  assert.equal(sandbox.scannerStatus_(owner).provider, "openai");
+  assert.throws(
+    () =>
+      sandbox.selectScannerProvider_(
+        { provider: "gemini" },
+        "tnvarsha.99@gmail.com",
+      ),
+    /Only the service owner/,
+  );
+  for (const provider of ["custom", "__proto__", "https://attacker.invalid"])
+    assert.throws(
+      () => sandbox.selectScannerProvider_({ provider }, owner),
+      /Unsupported/,
+    );
+  assert.equal(
+    sandbox.selectScannerProvider_({ provider: "gemini" }, owner).configured,
+    false,
+  );
+  const secret = "AIza-synthetic-gemini-key-for-test-only";
+  assert.throws(
+    () =>
+      sandbox.configureScanner_(
+        { provider: "gemini", apiKey: secret },
+        "other@example.com",
+      ),
+    /Only the service owner/,
+  );
+  const saved = sandbox.configureScanner_(
+    { provider: "gemini", apiKey: secret },
+    owner,
+  );
+  assert.equal(saved.provider, "gemini");
+  assert.equal(saved.configured, true);
+  assert.ok(!JSON.stringify(saved).includes(secret));
+  assert.equal(props.get("OPENAI_API_KEY"), "server-test-key");
+  assert.equal(
+    sandbox.selectScannerProvider_({ provider: "openai" }, owner).configured,
+    true,
+  );
+  assert.equal(
+    sandbox.selectScannerProvider_({ provider: "gemini" }, owner).configured,
+    true,
+  );
+  assert.equal(props.get("GEMINI_API_KEY"), secret);
+});
+function gemini(
+  status = 200,
+  body: any = {
+    candidates: [
+      {
+        finishReason: "STOP",
+        content: {
+          parts: [
+            {
+              text: JSON.stringify({
+                documents: [],
+                transactions: [proposal],
+                warnings: [],
+              }),
+            },
+          ],
+        },
+      },
+    ],
+  },
+) {
+  const context = scanner();
+  context.props.set("AI_PROVIDER", "gemini");
+  context.props.set("GEMINI_API_KEY", "synthetic-gemini-key");
+  context.sandbox.UrlFetchApp.fetch = (url: string, options: any) => {
+    context.calls.push({ url, options });
+    return {
+      getResponseCode: () => status,
+      getContentText: () => JSON.stringify(body),
+    };
+  };
+  return context;
+}
+test("Gemini analyzes PDFs/images with an explicit schema and no credentials or finance writes in output", () => {
+  const { sandbox, calls } = gemini();
+  const result = sandbox.analyzeDocuments_(
+    {
+      ...request,
+      provider: "gemini",
+      files: [
+        ...request.files,
+        {
+          name: "bill.png",
+          mimeType: "image/png",
+          data: "data:image/png;base64,dGVzdA==",
+        },
+      ],
+    },
+    "owner",
+  );
+  assert.equal(result.transactions[0].amount, 123.45);
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0].url,
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  );
+  assert.equal(
+    calls[0].options.headers["x-goog-api-key"],
+    "synthetic-gemini-key",
+  );
+  const sent = JSON.parse(calls[0].options.payload);
+  assert.equal(
+    sent.contents[0].parts[0].inlineData.mimeType,
+    "application/pdf",
+  );
+  assert.equal(sent.contents[0].parts[1].inlineData.mimeType, "image/png");
+  assert.equal(
+    sent.generationConfig.responseFormat.text.mimeType,
+    "APPLICATION_JSON",
+  );
+  assert.ok(
+    sent.generationConfig.responseFormat.text.schema.required.includes(
+      "documents",
+    ),
+  );
+  assert.equal(sent.generationConfig.thinkingConfig.thinkingLevel, "low");
+  assert.ok(!sent.tools);
+  assert.ok(!JSON.stringify(sent).includes("synthetic-gemini-key"));
+  assert.ok(!JSON.stringify(result).includes("synthetic-gemini-key"));
+});
+test("stale provider requests fail before any document is forwarded", () => {
+  const { sandbox, calls } = gemini();
+  assert.throws(
+    () =>
+      sandbox.analyzeDocuments_({ ...request, provider: "openai" }, "owner"),
+    /provider changed/,
+  );
+  assert.throws(
+    () => sandbox.testScannerKey_("owner", "openai"),
+    /provider changed/,
+  );
+  assert.equal(calls.length, 0);
+});
+test("Gemini tests use only a fixed prompt; errors and blocked/incomplete output fail without fallback", () => {
+  const { sandbox, calls } = gemini();
+  assert.equal(sandbox.testScannerKey_("owner", "gemini").ok, true);
+  const sent = JSON.parse(calls[0].options.payload);
+  assert.deepEqual(sent.contents[0].parts, [{ text: "Reply with OK." }]);
+  assert.equal(sent.generationConfig.responseFormat, undefined);
+  assert.throws(() => sandbox.testScannerKey_("owner", "gemini"), /Wait/);
+  for (const status of [400, 401, 403, 404, 429, 500]) {
+    const failed = gemini(status, {
+      error: { message: "private-provider-key-and-document" },
+    });
+    assert.throws(
+      () =>
+        failed.sandbox.analyzeDocuments_(
+          { ...request, provider: "gemini" },
+          "owner",
+        ),
+      (e: any) => {
+        assert.match(e.message, new RegExp("HTTP " + status));
+        assert.ok(!e.message.includes("private-provider"));
+        return true;
+      },
+    );
+    assert.equal(failed.calls.length, 1);
+  }
+  for (const body of [
+    { promptFeedback: { blockReason: "SAFETY" } },
+    { candidates: [{ finishReason: "MAX_TOKENS" }] },
+    {
+      candidates: [
+        { finishReason: "STOP", content: { parts: [{ text: "invalid" }] } },
+      ],
+    },
+  ]) {
+    const failed = gemini(200, body);
+    assert.throws(() => failed.sandbox.analyzeDocuments_(request, "owner"));
+    assert.equal(failed.calls.length, 1);
+  }
+});
+
+test("Groq uses the saved vision key and rejects PDFs or oversized image batches before forwarding", () => {
+  const context = scanner();
+  context.props.set("AI_PROVIDER", "groq");
+  context.props.set("GROQ_API_KEY", "synthetic-groq-key");
+  context.sandbox.UrlFetchApp.fetch = (url: string, options: any) => {
+    context.calls.push({ url, options });
+    return {
+      getResponseCode: () => 200,
+      getContentText: () =>
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  documents: [],
+                  transactions: [proposal],
+                  warnings: [],
+                }),
+              },
+            },
+          ],
+        }),
+    };
+  };
+  assert.throws(
+    () => context.sandbox.analyzeDocuments_(request, "owner"),
+    /up to 3 images/,
+  );
+  const image = {
+    name: "bill.png",
+    mimeType: "image/png",
+    data: "data:image/png;base64,dGVzdA==",
+  };
+  assert.throws(
+    () =>
+      context.sandbox.analyzeDocuments_(
+        { ...request, files: [image, image, image, image] },
+        "owner",
+      ),
+    /up to 3 images/,
+  );
+  assert.equal(context.calls.length, 0);
+  const result = context.sandbox.analyzeDocuments_(
+    { ...request, provider: "groq", files: [image] },
+    "owner",
+  );
+  assert.equal(result.transactions[0].amount, 123.45);
+  const call = context.calls[0],
+    sent = JSON.parse(call.options.payload);
+  assert.equal(call.url, "https://api.groq.com/openai/v1/chat/completions");
+  assert.equal(call.options.headers.Authorization, "Bearer synthetic-groq-key");
+  assert.equal(sent.model, "qwen/qwen3.8-27b");
+  assert.equal(sent.messages[0].content[1].image_url.url, image.data);
+  assert.equal(sent.response_format.type, "json_object");
+  assert.ok(!sent.tools);
+  assert.ok(!JSON.stringify(result).includes("synthetic-groq-key"));
+  assert.equal(context.sandbox.testScannerKey_("owner", "groq").ok, true);
+  const testBody = JSON.parse(context.calls[1].options.payload);
+  assert.deepEqual(testBody.messages, [
+    { role: "user", content: [{ type: "text", text: "Reply with OK." }] },
+  ]);
+  assert.equal(testBody.response_format, undefined);
+  for (const status of [400, 401, 403, 404, 429, 500]) {
+    const error = context.sandbox.scannerProviderError_(
+      {
+        getResponseCode: () => status,
+        getContentText: () => '{"error":{"message":"secret"}}',
+      },
+      "groq",
+    );
+    assert.match(error, new RegExp("HTTP " + status));
+    assert.ok(!error.includes("secret"));
+  }
+});
+
+test("Claude reads inline images and PDFs with structured proposals and fails safely on refusals", () => {
+  const context = scanner();
+  context.props.set("AI_PROVIDER", "claude");
+  context.props.set("ANTHROPIC_API_KEY", "synthetic-claude-key");
+  let body: any = {
+    stop_reason: "end_turn",
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          documents: [],
+          transactions: [proposal],
+          warnings: [],
+        }),
+      },
+    ],
+  };
+  context.sandbox.UrlFetchApp.fetch = (url: string, options: any) => {
+    context.calls.push({ url, options });
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify(body),
+    };
+  };
+  const image = {
+    name: "bill.png",
+    mimeType: "image/png",
+    data: "data:image/png;base64,dGVzdA==",
+  };
+  const result = context.sandbox.analyzeDocuments_(
+    { ...request, provider: "claude", files: [...request.files, image] },
+    "owner",
+  );
+  assert.equal(result.transactions[0].amount, 123.45);
+  const call = context.calls[0],
+    sent = JSON.parse(call.options.payload);
+  assert.equal(call.url, "https://api.anthropic.com/v1/messages");
+  assert.equal(call.options.headers["x-api-key"], "synthetic-claude-key");
+  assert.equal(call.options.headers["anthropic-version"], "2026-10-21");
+  assert.equal(sent.model, "claude-sonnet-5-5");
+  assert.equal(sent.messages[0].content[1].type, "document");
+  assert.equal(
+    sent.messages[0].content[1].source.media_type,
+    "application/pdf",
+  );
+  assert.equal(sent.messages[0].content[2].type, "image");
+  assert.equal(sent.output_config.format.type, "json_schema");
+  assert.ok(sent.output_config.format.schema.required.includes("documents"));
+  assert.ok(!sent.tools);
+  assert.ok(!JSON.stringify(result).includes("synthetic-claude-key"));
+  assert.equal(context.sandbox.testScannerKey_("owner", "claude").ok, true);
+  const test = JSON.parse(context.calls[1].options.payload);
+  assert.deepEqual(test.messages, [
+    { role: "user", content: [{ type: "text", text: "Reply with OK." }] },
+  ]);
+  assert.equal(test.output_config, undefined);
+  for (const invalid of [
+    { stop_reason: "max_tokens", content: [] },
+    { stop_reason: "refusal", content: [] },
+    {
+      stop_reason: "end_turn",
+      stop_details: { type: "refusal" },
+      content: [{ type: "text", text: "{}" }],
+    },
+    { stop_reason: "end_turn", content: [{ type: "text", text: "invalid" }] },
+  ]) {
+    body = invalid;
+    const count = context.calls.length;
+    assert.throws(() =>
+      context.sandbox.analyzeDocuments_(
+        { ...request, provider: "claude" },
+        "owner",
+      ),
+    );
+    assert.equal(context.calls.length, count + 1);
+  }
+  for (const status of [400, 401, 402, 403, 404, 429, 500, 529]) {
+    const error = context.sandbox.scannerProviderError_(
+      {
+        getResponseCode: () => status,
+        getContentText: () => '{"error":{"message":"secret"}}',
+      },
+      "claude",
+    );
+    assert.match(error, new RegExp("HTTP " + status));
+    assert.ok(!error.includes("secret"));
+  }
+});
+
+test("Groq and Claude key configuration preserves other providers and rejects stale configuration", () => {
+  const context = scanner();
+  const owner = "ramasami.official@gmail.com";
+  for (const [provider, property] of [
+    ["groq", "GROQ_API_KEY"],
+    ["claude", "ANTHROPIC_API_KEY"],
+  ]) {
+    context.sandbox.selectScannerProvider_({ provider }, owner);
+    assert.throws(
+      () =>
+        context.sandbox.configureScanner_(
+          { provider: "openai", apiKey: "sk-synthetic-old-provider-key" },
+          owner,
+        ),
+      /provider changed/,
+    );
+    context.sandbox.configureScanner_(
+      { provider, apiKey: "synthetic-private-provider-key" },
+      owner,
+    );
+    assert.equal(context.props.get(property), "synthetic-private-provider-key");
+    assert.equal(context.props.get("OPENAI_API_KEY"), "server-test-key");
+    assert.throws(
+      () =>
+        context.sandbox.configureScanner_(
+          { provider, apiKey: "bad\r\nheader" },
+          owner,
+        ),
+      /valid/,
+    );
+    assert.equal(context.props.get(property), "synthetic-private-provider-key");
+  }
+});

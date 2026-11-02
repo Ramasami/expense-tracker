@@ -162,7 +162,13 @@ test("new receipt users require both active owner membership and access to the a
 });
 
 test("AI service actions reject accounts without owner mapping or Sheet access", () => {
-  for (const action of ["scannerStatus", "analyzeDocuments"]) {
+  for (const action of [
+    "scannerStatus",
+    "analyzeDocuments",
+    "selectScannerProvider",
+    "configureScanner",
+    "testScannerKey",
+  ]) {
     const denied = service("outsider@example.com");
     assert.equal(denied.run(action).ok, false);
     assert.ok(!denied.calls.some((url) => url.includes("api.openai.com")));

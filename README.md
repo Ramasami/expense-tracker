@@ -1,6 +1,6 @@
 # Budget Tracker
 
-A shared personal-finance app with Google sign-in, Google Sheets records and private Drive receipts. The website runs on **GitHub Pages**; a small Google Apps Script service manages shared receipts and optional OpenAI document extraction.
+A shared personal-finance app with Google sign-in, Google Sheets records and private Drive receipts. The website runs on **GitHub Pages**; a small Google Apps Script service manages shared receipts and optional AI document extraction (OpenAI, Gemini, Groq or Claude).
 
 Live site: [Budget Tracker](https://ramasami.github.io/expense-tracker/).
 
@@ -288,6 +288,30 @@ The import dialog has **Upload CSV** and **Upload using AI** tabs. **Download sa
 The automatic document is a current source inventory, not an AI-written behavioral changelog. README and architecture explanations still need intentional updates when rules change; AGENTS and skills.MD explicitly require that. No OpenAI calls, API keys or real financial data are used for documentation generation.
 
 
-### Test the saved OpenAI API key
+### Test the saved API key
 
-In **Settings → AI bill & statement scanner**, choose **Test saved API key** after a key is configured. It sends a fixed, tiny Responses request using the same saved key/model, with `store:false` and a 16-token output cap. This is a billable API request; no statement, image or financial data is sent. Successful tests show the model and test time. Invalid/revoked keys, model permissions, billing/quota and temporary rate limits show sanitized actionable messages. Tests run only on explicit clicks, never automatically, and are limited server-side to one per minute per authorized owner. A test checks Responses/model access; it does not guarantee every document will parse correctly.
+In **Settings → AI bill & statement scanner**, choose **Test saved API key** after a key is configured. It sends a fixed connection prompt using the selected provider’s saved key/model. OpenAI uses Responses with `store:false` and a 16-token output cap; Gemini and Groq use their adapters with a 1,024-token test cap. This uses API billing or the selected provider’s free quota; no statement, image or financial data is sent. Successful tests show the model and test time. Invalid/revoked keys, model permissions, billing/quota and temporary rate limits show sanitized actionable messages. Tests run only on explicit clicks, never automatically, and are limited server-side to one per minute per authorized owner. A test checks provider/model access; it does not guarantee every document will parse correctly.
+
+
+### Choose an AI provider
+
+**Settings → AI bill & statement scanner → AI provider** selects **OpenAI (ChatGPT)**, **Google Gemini**, **Groq** or **Anthropic Claude** for all authorized owners. Only the service owner can change this shared choice or save keys. Existing OpenAI setups remain selected by default. Save each provider’s key once; switching providers preserves saved keys across sign-ins, devices, refreshes and deployments. Test saved API key checks the selected provider with a fixed prompt, no financial documents, and a once-per-minute actor limit. API charges or free quota apply. Google login authenticates app/Sheet access; it does not supply Gemini API quota or replace the server-side API credential.
+
+For Gemini, create a key in [Google AI Studio](https://aistudio.google.com/api-keys), restrict API access to **Generative Language API**, and paste it into the Gemini password field. Browser referrer restrictions do not work for Apps Script requests. Keys stay only in Script properties and are never returned, cached or included in Sheet backups. The default model is `gemini-3.8-flash`; the service owner can override `GEMINI_MODEL` with a compatible model. No real key is needed for automated tests.
+
+Selected images/PDFs and active tags go only to the explicitly selected provider. Uploads display the provider; a change while a dialog is open fails safely and requires reopening it. There is no automatic fallback or retry. All adapters return the same validated review proposals, and confirmation remains mandatory before ordinary audited Sheet writes. Gemini quota, key/model access, blocked and incomplete responses fail visibly without importing data.
+
+**Gemini free-tier privacy:** free inputs/outputs may be used to improve Google products and reviewed by humans. Do not submit sensitive or personal statements under unpaid terms; use redacted documents or an eligible paid project. Free access is model/project/region/quota dependent, not guaranteed. See [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [data terms](https://ai.google.dev/gemini-api/terms); the same notice appears in Settings and uploads.
+
+Future providers require an entry in `lib/ai-providers.ts`, an allowlisted Apps Script adapter/configuration and tests. Arbitrary provider URLs are deliberately unsupported to protect keys and financial documents. Provider metadata never contains credentials.
+
+
+Groq is also available in the provider selector, with an independent `GROQ_API_KEY` saved once through Settings and optional `GROQ_MODEL` (default `qwen/qwen3.8-27b`, currently a preview). Create the key in [GroqCloud](https://console.groq.com/keys) and review [data controls](https://console.groq.com/docs/your-data). This adapter uses fixed-host chat completions, JSON object mode plus a supplied schema, and client schema validation before review. It supports up to **3 images**, not PDF input; use page screenshots or choose OpenAI/Gemini for PDFs. Limits are checked before provider transmission. Key tests use a fixed prompt and no files; output cap is 1,024 tokens (10,000 for scans). Availability, free quotas and pricing depend on Groq’s current model/project plan. Errors never trigger fallback to another provider.
+
+Local Ollama and native Apple Intelligence are skipped in this browser release. Ollama requires a separately running model server, explicit browser-origin configuration and a secure connection accessible from each device; the Google-hosted service cannot reach a user's localhost. Apple’s Foundation Models integration is a native Swift API, requiring a native app/bridge rather than this GitHub Pages website. The app explains these limits without showing nonfunctional provider choices.
+
+
+Claude is available as **Anthropic Claude** in the same selector. Save an Anthropic workspace key once through Settings; it is stored only as `ANTHROPIC_API_KEY`, with optional `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`). API usage/billing is separate from a Claude subscription. The fixed-host `api.anthropic.com/v1/messages` adapter sends inline base64 image/document blocks, an output_config.format JSON schema, and API version 2026-10-21. It supports images and PDFs, with the same 1–5 file, 2 MB/file, 4 MB/scan app limits. Scans cap output at 10,000 tokens and fixed connection tests at 1,024. Incomplete/refused/malformed results fail without fallback. Preview confirmation is required before any financial writes, and existing provider keys remain saved when switching.
+
+
+Phone/tablet viewport handling blocks pinch/Safari gestures and double-click zoom while preserving single-finger scrolling and ordinary clicks. The final coarse-pointer CSS rule keeps form controls, including scanner keys, at 16 px to avoid automatic focus zoom; later component styles must not override it. Browser/OS accessibility overrides remain outside application control.

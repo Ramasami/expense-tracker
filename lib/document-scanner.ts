@@ -1,3 +1,4 @@
+import { AI_PROVIDERS, type AIProvider } from "./ai-providers";
 import { z } from "zod";
 import { googleToken } from "./google-auth";
 import { compressReceipt, RECEIPT_SERVICE_URL } from "./receipts";
@@ -61,6 +62,7 @@ async function service(action: string, args: Record<string, unknown> = {}) {
   return data.result;
 }
 export async function scannerStatus(): Promise<{
+  provider?: AIProvider;
   configured: boolean;
   canConfigure?: boolean;
   model: string;
@@ -69,15 +71,21 @@ export async function scannerStatus(): Promise<{
 }
 export async function saveScannerKey(
   apiKey: string,
-): Promise<{ configured: boolean; canConfigure: boolean; model: string }> {
-  return service("configureScanner", { apiKey });
+  provider?: AIProvider,
+): ReturnType<typeof scannerStatus> {
+  return service("configureScanner", { apiKey, provider });
 }
-export async function testScannerKey(): Promise<{
+export async function selectScannerProvider(
+  provider: AIProvider,
+): ReturnType<typeof scannerStatus> {
+  return service("selectScannerProvider", { provider });
+}
+export async function testScannerKey(provider?: AIProvider): Promise<{
   ok: boolean;
   model: string;
   testedAt: string;
 }> {
-  return service("testScannerKey");
+  return service("testScannerKey", { provider });
 }
 function dataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -94,14 +102,25 @@ export async function analyzeDocuments(
   onStage: (message: string) => void,
   configured?: boolean,
   hints?: ScanHints,
+  provider?: AIProvider,
 ) {
   if (!files.length || files.length > 5)
     throw Error("Select between 1 and 5 images or PDFs.");
   onStage("Checking scanner setup…");
-  const ready = configured ?? (await scannerStatus()).configured;
+  const setup =
+    configured === undefined ? await scannerStatus() : { configured, provider };
+  const ready = setup.configured;
+  const selectedProvider = setup.provider || provider;
   if (!ready)
     throw Error(
-      "AI scanning is not configured yet. Ask the service owner to add the OpenAI API key in Settings → AI bill & statement scanner.",
+      "AI scanning is not configured yet. Ask the service owner to select an AI provider and add its API key in Settings → AI bill & statement scanner.",
+    );
+  if (
+    selectedProvider === "groq" &&
+    (files.length > 3 || files.some((file) => file.type === "application/pdf"))
+  )
+    throw Error(
+      "Groq supports up to 3 images per scan. Upload screenshots, or select OpenAI/Gemini for PDFs.",
     );
   const documents: { name: string; mimeType: string; data: string }[] = [];
   let total = 0;
@@ -123,9 +142,12 @@ export async function analyzeDocuments(
       data: await dataURL(prepared),
     });
   }
-  onStage("Analyzing documents with OpenAI…");
+  onStage(
+    `Analyzing documents with ${AI_PROVIDERS[selectedProvider || "openai"].name}…`,
+  );
   const result = scanSchema.parse(
     await service("analyzeDocuments", {
+      provider: selectedProvider,
       files: documents,
       hints,
       tags: tags

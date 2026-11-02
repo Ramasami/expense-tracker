@@ -14,7 +14,7 @@ Older direct uploads are not owned by the service. They remain readable with the
 
 After changes, update the project source, create a new version and update the existing deployment to that version. Its URL remains stable. The public endpoint is the default in `lib/receipts.ts` and can be overridden at build time with `NEXT_PUBLIC_RECEIPT_SERVICE_URL`. Apps Script quotas and execution limits apply; receipt controls require connectivity and a valid Google session.
 
-## Optional OpenAI document scanner
+## Optional AI document scanner
 
 The same authenticated service now supports `scannerStatus` and `analyzeDocuments`. Both require the caller’s verified app token, active owner mapping and Sheet access. The analysis action returns proposals only; it never writes transactions, invokes model tools or changes Drive files.
 
@@ -23,7 +23,7 @@ In **Project Settings → Script properties**, configure:
 - `OPENAI_API_KEY`: server-only OpenAI project key. Never put it in the browser, `.env` public variables, Git or chat.
 - `OPENAI_MODEL` (optional): default `gpt-4.1-mini`; use a model supporting Responses, image/PDF inputs and strict structured outputs.
 
-Requests use `https://api.openai.com/v1/responses`, `store:false`, a strict JSON schema and no tools. Existing `script.external_request` scope is sufficient. Only selected documents and sanitized active tag identifiers/names/types are forwarded; the caller’s Google token, owner email and full ledger are not forwarded. Applicable OpenAI API billing/data policies still apply. The scanner returns a clear setup message until the key is configured. This is a one-time setup: Script properties survive app refreshes, sign-outs, other devices and deployments. Once detected, the website shows **Configured** and hides key setup instructions. Only deleting or replacing the property changes the saved key.
+Requests use `https://api.openai.com/v1/responses`, `store:false`, a strict JSON schema and no tools. Existing `script.external_request` scope is sufficient. Only selected documents and sanitized active tag identifiers/names/types are forwarded; the caller’s Google token, owner email and full ledger are not forwarded. Applicable OpenAI API billing/data policies still apply. The scanner returns a clear setup message until the key is configured. This is a one-time setup: Script properties survive app refreshes, sign-outs, other devices and deployments. Once detected, the website shows **Configured**; optional key replacement stays available in Settings. Only deleting or replacing the property changes the saved key.
 
 Limits: 1–5 files, each up to 2 MB decoded, 4 MB decoded total, at most 100 extracted transactions and 20 analyses per owner/day. Image/PDF MIME types, data-URL encoding and payload sizes are checked before calling OpenAI. Large scans do not hold the receipt service lock during the model request; the short lock only updates quota counters. Provider failures are sanitized and do not expose keys or raw provider output. API extraction never automatically retries or writes financial data.
 
@@ -36,3 +36,20 @@ Document scans accept allowlisted kind/date hints; Auto requests infer each sour
 
 
 `testScannerKey` is an authenticated, explicitly triggered saved-key test. It sends a fixed small prompt to Responses with the configured model, `store:false` and `max_output_tokens:16`. It never sends files/finance data or returns provider output or credentials. Tests are billable and limited to once per minute per authorized actor. Errors reuse the sanitized billing/quota/permission classifier; the key is never changed by testing.
+
+
+## Gemini and provider selection
+
+`scannerStatus` returns the shared selected provider, configured flag, model and owner configuration permission, never keys. Owner-only `selectScannerProvider` saves allowlisted `AI_PROVIDER` (`openai` default, `gemini`, `groq` or `claude`); `configureScanner` writes only that provider’s key. Existing OpenAI properties are retained. Add `GEMINI_API_KEY` through Settings (or server properties) once; optional `GEMINI_MODEL` defaults to `gemini-3.8-flash`. Keep API restrictions to Generative Language API; requests originate at Apps Script, so browser referrer restrictions are unsuitable. No new Google scopes are required. Google app login and Gemini API project credentials/quota are separate.
+
+Gemini requests use a fixed `generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` endpoint, API key in `x-goog-api-key`, inline image/PDF parts, `generationConfig.responseFormat.text` JSON schema and low thinking. Scans cap output at 16,000 tokens; key tests at 1,024 including reasoning. Test prompts contain no finance/documents. Gemini completion must be STOP with usable text; blocks, truncation, bad JSON and errors fail without automatic fallback/retry. Quotas are shared across providers. Frontend requests carry an expected provider to reject stale selections before transmission. Keep the Apps Script project private.
+
+Gemini free-tier inputs/outputs may be used to improve Google products and reviewed by humans; sensitive/personal documents must not be submitted under unpaid terms. The app displays this notice and links [Google terms](https://ai.google.dev/gemini-api/terms). Use redacted documents or eligible paid service terms, and check project/model quotas. A provider adapter is code-reviewed and allowlisted; arbitrary custom endpoints are unsupported.
+
+
+Groq is also available in the provider selector, with an independent `GROQ_API_KEY` saved once through Settings and optional `GROQ_MODEL` (default `qwen/qwen3.8-27b`, currently a preview). Create the key in [GroqCloud](https://console.groq.com/keys) and review [data controls](https://console.groq.com/docs/your-data). This adapter uses fixed-host chat completions, JSON object mode plus a supplied schema, and client schema validation before review. It supports up to **3 images**, not PDF input; use page screenshots or choose OpenAI/Gemini for PDFs. Limits are checked before provider transmission. Key tests use a fixed prompt and no files; output cap is 1,024 tokens (10,000 for scans). Availability, free quotas and pricing depend on Groq’s current model/project plan. Errors never trigger fallback to another provider.
+
+Local Ollama and native Apple Intelligence are skipped in this browser release. Ollama requires a separately running model server, explicit browser-origin configuration and a secure connection accessible from each device; the Google-hosted service cannot reach a user's localhost. Apple’s Foundation Models integration is a native Swift API, requiring a native app/bridge rather than this GitHub Pages website. The app explains these limits without showing nonfunctional provider choices.
+
+
+Claude is available as **Anthropic Claude** in the same selector. Save an Anthropic workspace key once through Settings; it is stored only as `ANTHROPIC_API_KEY`, with optional `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`). API usage/billing is separate from a Claude subscription. The fixed-host `api.anthropic.com/v1/messages` adapter sends inline base64 image/document blocks, an output_config.format JSON schema, and API version 2026-10-21. It supports images and PDFs, with the same 1–5 file, 2 MB/file, 4 MB/scan app limits. Scans cap output at 10,000 tokens and fixed connection tests at 1,024. Incomplete/refused/malformed results fail without fallback. Preview confirmation is required before any financial writes, and existing provider keys remain saved when switching.

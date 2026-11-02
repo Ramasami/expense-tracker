@@ -43,22 +43,33 @@ export default function PrivacyPage() {
       </p>
       <h2>Optional AI document scanning</h2>
       <p>
-        The service owner can save an OpenAI API key through the Settings
-        password field. It is sent over HTTPS to the authenticated Apps Script
-        service and stored only in server-side Script properties. The key is
-        never returned to the browser or included in financial records, offline
-        caches or backups.
+        The service owner can choose OpenAI, Gemini, Groq or Claude and save
+        each provider’s API key through the Settings password field. It is sent
+        over HTTPS to the authenticated Apps Script service and stored only in
+        server-side Script properties. The key is never returned to the browser
+        or included in financial records, offline caches or backups.
       </p>
       <p>
         When you choose Analyze with AI, the selected bills, images or PDFs and
         the active tag names are sent through the authenticated Google service
-        to OpenAI for extraction. Your Google token, owner email and the rest of
-        your ledger are not forwarded to OpenAI. The service uses a server-side
-        API key and requests store:false; OpenAI’s applicable API data policies
-        still apply. Extracted records are proposals until you review and
-        confirm them. Source files are not automatically stored as Drive
-        receipts. Screen guides do not send financial data; optional read-aloud
-        uses your browser’s speech service.
+        to the explicitly selected AI provider for extraction. There is no
+        automatic provider fallback. Your Google token, owner email and the rest
+        of your ledger are not forwarded to the AI provider. The service uses a
+        server-side API key. OpenAI requests use store:false; the selected
+        provider’s API data policies still apply. Extracted records are
+        proposals until you review and confirm them. Source files are not
+        automatically stored as Drive receipts. Screen guides do not send
+        financial data; optional read-aloud uses your browser’s speech service.
+      </p>
+      <p>
+        Gemini unpaid-service inputs and outputs may be used to improve Google
+        products and reviewed by humans. Do not submit sensitive or personal
+        statements under unpaid terms; use redacted documents or an eligible
+        paid project. Review{" "}
+        <a href="https://ai.google.dev/gemini-api/terms">
+          Google’s API data terms
+        </a>
+        . Tests send a fixed connection prompt without financial data.
       </p>
       <h2>Your controls</h2>
       <p>

@@ -1005,9 +1005,26 @@ test("touch devices keep a fixed viewport and block pinch gestures without block
       ],
     });
     document.dispatchEvent(single);
-    return { pinch: pinch.defaultPrevented, single: single.defaultPrevented };
+    const doubleTap = new MouseEvent("dblclick", {
+      cancelable: true,
+      bubbles: true,
+    });
+    document.dispatchEvent(doubleTap);
+    const safariGesture = new Event("gesturestart", { cancelable: true });
+    document.dispatchEvent(safariGesture);
+    return {
+      pinch: pinch.defaultPrevented,
+      single: single.defaultPrevented,
+      doubleTap: doubleTap.defaultPrevented,
+      safariGesture: safariGesture.defaultPrevented,
+    };
   });
-  expect(gestures).toEqual({ pinch: true, single: false });
+  expect(gestures).toEqual({
+    pinch: true,
+    single: false,
+    doubleTap: true,
+    safariGesture: true,
+  });
   await context.close();
 });
 
@@ -2290,93 +2307,101 @@ test("a budget can select multiple searched tags and count only those purchases"
   );
 });
 
-test("AI bill scans require review confirmation before any Sheet update", async ({
-  page,
-}) => {
-  const { f } = await mockGoogle(page);
-  let analyses = 0;
-  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
-    const req = route.request().postDataJSON();
-    if (req.action === "scannerStatus")
+for (const provider of ["openai", "gemini", "groq", "claude"] as const)
+  test(`${provider} AI bill scans require review confirmation before any Sheet update`, async ({
+    page,
+  }) => {
+    const { f } = await mockGoogle(page);
+    let analyses = 0;
+    await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+      const req = route.request().postDataJSON();
+      if (req.action === "scannerStatus")
+        return route.fulfill({
+          json: {
+            ok: true,
+            result: { provider, configured: true, model: "test-model" },
+          },
+        });
+      expect(req.provider).toBe(provider);
+      analyses++;
       return route.fulfill({
-        json: { ok: true, result: { configured: true, model: "gpt-4.1-mini" } },
-      });
-    analyses++;
-    return route.fulfill({
-      json: {
-        ok: true,
-        result: {
-          transactions: [
-            {
-              date: "2026-11-02",
-              description: "AI bill proposal",
-              amount: 125,
-              type: "Expense",
-              expenseMode: "Debit",
-              kind: "purchase",
-              tagId: "sheet-tag-2",
-              accountHint: null,
-              toAccountHint: null,
-              creditCardHint: null,
-              currency: "INR",
-              confidence: "high",
-              sourceIndex: 0,
-              notes: "Review this receipt",
-            },
-          ],
-          warnings: ["Check the date and amount before saving."],
+        json: {
+          ok: true,
+          result: {
+            transactions: [
+              {
+                date: "2026-11-02",
+                description: "AI bill proposal",
+                amount: 125,
+                type: "Expense",
+                expenseMode: "Debit",
+                kind: "purchase",
+                tagId: "sheet-tag-2",
+                accountHint: null,
+                toAccountHint: null,
+                creditCardHint: null,
+                currency: "INR",
+                confidence: "high",
+                sourceIndex: 0,
+                notes: "Review this receipt",
+              },
+            ],
+            warnings: ["Check the date and amount before saving."],
+          },
         },
-      },
+      });
     });
+    await login(page);
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page
+      .getByRole("button", { name: "Import statement", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Import statement",
+      exact: true,
+    });
+    await dialog
+      .getByRole("button", { name: "Upload using AI", exact: true })
+      .click();
+    await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
+      name: "bill.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+    await dialog
+      .getByRole("button", { name: "Analyze with AI", exact: true })
+      .click();
+    await expect(
+      dialog.getByLabel("Row 1 description", { exact: true }),
+    ).toHaveValue("AI bill proposal");
+    expect(f.grids["Expense Ledger"].length).toBe(2);
+    const save = dialog.getByRole("button", {
+      name: "Import 1 selected transactions",
+      exact: true,
+    });
+    await expect(save).toBeDisabled();
+    await dialog
+      .getByRole("checkbox", { name: /I reviewed the selected entries/ })
+      .check();
+    await expect(save).toBeEnabled();
+    await dialog.getByLabel("Row 1 amount", { exact: true }).fill("120");
+    await expect(save).toBeDisabled();
+    await dialog
+      .getByRole("checkbox", { name: /I reviewed the selected entries/ })
+      .check();
+    await save.click();
+    await expect(dialog).toContainText("1 saved");
+    expect(
+      f.grids["Expense Ledger"].filter((r) => r[1] === "AI bill proposal"),
+    ).toHaveLength(1);
+    expect(analyses).toBe(1);
   });
-  await login(page);
-  await page
-    .locator("nav")
-    .getByRole("button", { name: /^Transactions/ })
-    .click();
-  await page
-    .getByRole("button", { name: "Import statement", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Import statement",
-    exact: true,
-  });
-  await dialog
-    .getByRole("button", { name: "Upload using AI", exact: true })
-    .click();
-  await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
-    name: "bill.pdf",
-    mimeType: "application/pdf",
-    buffer: Buffer.from("%PDF-test"),
-  });
-  await dialog
-    .getByRole("button", { name: "Analyze with AI", exact: true })
-    .click();
-  await expect(
-    dialog.getByLabel("Row 1 description", { exact: true }),
-  ).toHaveValue("AI bill proposal");
-  expect(f.grids["Expense Ledger"].length).toBe(2);
-  const save = dialog.getByRole("button", {
-    name: "Import 1 selected transactions",
-    exact: true,
-  });
-  await expect(save).toBeDisabled();
-  await dialog
-    .getByRole("checkbox", { name: /I reviewed the selected entries/ })
-    .check();
-  await expect(save).toBeEnabled();
-  await dialog.getByLabel("Row 1 amount", { exact: true }).fill("120");
-  await expect(save).toBeDisabled();
-  await dialog
-    .getByRole("checkbox", { name: /I reviewed the selected entries/ })
-    .check();
-  await save.click();
-  await expect(dialog).toContainText("1 saved");
-  expect(
-    f.grids["Expense Ledger"].filter((r) => r[1] === "AI bill proposal"),
-  ).toHaveLength(1);
-  expect(analyses).toBe(1);
-});
 
 test("list controls search account names, filter status and sort report choices", async ({
   page,
@@ -2965,12 +2990,10 @@ test("Settings explicitly tests the saved API key and fits desktop and phone", a
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page
-      .locator(".scanner-settings")
-      .screenshot({
-        path: `work/key-test-settings-${width}.png`,
-        animations: "disabled",
-      });
+    await page.locator(".scanner-settings").screenshot({
+      path: `work/key-test-settings-${width}.png`,
+      animations: "disabled",
+    });
   }
 });
 
@@ -3014,4 +3037,115 @@ test("Settings shows key-test quota errors without clearing its saved configurat
   await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveValue(
     "",
   );
+});
+
+test("Settings switches providers, preserves saved keys and fits desktop and phone", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  let provider = "openai";
+  const configured: Record<string, boolean> = {
+    openai: true,
+    gemini: false,
+    groq: false,
+    claude: false,
+  };
+  const saves: string[] = [];
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const req = route.request().postDataJSON();
+    if (req.action === "selectScannerProvider") provider = req.provider;
+    else if (req.action === "configureScanner") {
+      expect(req.provider).toBe(provider);
+      configured[provider] = true;
+      saves.push(provider);
+    } else if (req.action === "testScannerKey") {
+      expect(req.provider).toBe(provider);
+      return route.fulfill({
+        json: {
+          ok: true,
+          result: {
+            ok: true,
+            model: "test-" + provider,
+            testedAt: "2026-11-03T00:00:00Z",
+          },
+        },
+      });
+    } else expect(req.action).toBe("scannerStatus");
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          provider,
+          configured: configured[provider],
+          model: "test-" + provider,
+          canConfigure: true,
+        },
+      },
+    });
+  });
+  await login(page);
+  const settings = page.locator(".scanner-settings");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  const select = page.getByLabel("AI provider", { exact: true });
+  await expect(select).toBeEnabled();
+  for (const id of ["gemini", "groq", "claude"] as const) {
+    await select.selectOption(id);
+    const key = page.getByLabel(
+      `${id === "gemini" ? "Gemini" : id === "groq" ? "Groq" : "Claude"} API key`,
+      { exact: true },
+    );
+    await expect(key).toBeEnabled();
+    if (id === "gemini")
+      await expect(settings).toContainText("Do not upload sensitive");
+    await key.fill("synthetic-provider-key-test-only");
+    await settings
+      .getByRole("button", { name: "Save API key securely", exact: true })
+      .click();
+    await expect(settings.getByRole("status")).toContainText(
+      "API key saved securely",
+    );
+    await expect(key).toHaveValue("");
+    await settings
+      .getByRole("button", { name: "Test saved API key", exact: true })
+      .click();
+    await expect(settings.getByRole("status")).toContainText(
+      "Connection successful",
+    );
+  }
+  await select.selectOption("openai");
+  await expect(settings.getByRole("status")).toContainText("Configured");
+  await select.selectOption("gemini");
+  await expect(settings.getByRole("status")).toContainText("Configured");
+  expect(saves).toEqual(["gemini", "groq", "claude"]);
+  await page.reload();
+  await expect(page.locator(".sync")).toContainText("Google connected");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  await expect(select).toHaveValue("gemini");
+  await expect(settings.getByRole("status")).toContainText("Configured");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(select).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await settings.screenshot({
+      path: `work/ai-providers-settings-${width}.png`,
+      animations: "disabled",
+    });
+  }
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+  const stored = await page.evaluate(
+    () =>
+      JSON.stringify({ ...localStorage }) +
+      JSON.stringify({ ...sessionStorage }),
+  );
+  expect(stored).not.toContain("synthetic-provider-key-test-only");
 });

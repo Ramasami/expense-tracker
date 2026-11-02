@@ -9,7 +9,7 @@ Read [README.md](README.md) for user-visible features, [docs/ARCHITECTURE.md](do
 3. Preserve owner/Sheet authorization, verified saves, exact-operation retries, optimistic concurrency and D/I array formulas. Never use stale cached data for edits.
 4. Keep money/card/loan calculations in shared helpers. Do not count transfers, card settlements or loan principal as new spending twice.
 5. Review document proposals before financial writes. AI analysis must not write Sheets directly, invent missing amounts/dates, or treat statement balances as purchases.
-6. Keep secrets server-side. Never print or commit credentials, tokens, actual statement data, receipt bytes or an OpenAI key. Use synthetic data for tests and screenshots.
+6. Keep secrets server-side. Never print or commit credentials, tokens, actual statement data, receipt bytes or any AI provider key. Use synthetic data for tests and screenshots.
 7. Update README and architecture notes when behavior changes. Generated context updates automatically; it is an inventory, not a substitute for explaining a changed rule.
 8. Run targeted checks, then the relevant broader checks if the change affects financial integrity, authorization or shared UI. Inspect responsive layouts when changing page structure.
 9. Commit and push only within the user's authorization. Releases and Pages deployment run on pushes to main. Verify results; do not claim deployment succeeded while it is pending.

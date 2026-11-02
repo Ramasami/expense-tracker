@@ -16,6 +16,11 @@ import {
   scanDocumentSchema,
 } from "../lib/document-scanner";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
+import {
+  AI_PROVIDERS,
+  GEMINI_PRIVACY,
+  type AIProvider,
+} from "../lib/ai-providers";
 type Preview = {
   record: any;
   selected: boolean;
@@ -66,6 +71,9 @@ export default function StatementImport({
     [previewPage, setPreviewPage] = useState(0),
     [mode, setMode] = useState<"csv" | "scan">(initialMode),
     [scanFiles, setScanFiles] = useState<File[]>([]),
+    [scannerProvider, setScannerProvider] = useState<AIProvider | undefined>(
+      undefined,
+    ),
     [scannerConfigured, setScannerConfigured] = useState<boolean | null>(null),
     [scannerChecking, setScannerChecking] = useState(false),
     [scannerCheckError, setScannerCheckError] = useState(""),
@@ -94,7 +102,10 @@ export default function StatementImport({
     setScannerCheckError("");
     scannerStatus()
       .then((status) => {
-        if (active) setScannerConfigured(status.configured);
+        if (active) {
+          setScannerConfigured(status.configured);
+          setScannerProvider(status.provider || "openai");
+        }
       })
       .catch((e) => {
         if (active) {
@@ -113,7 +124,9 @@ export default function StatementImport({
     setScannerChecking(true);
     setScannerCheckError("");
     try {
-      setScannerConfigured((await scannerStatus()).configured);
+      const status = await scannerStatus();
+      setScannerConfigured(status.configured);
+      setScannerProvider(status.provider || "openai");
     } catch (e) {
       setScannerConfigured(null);
       setScannerCheckError((e as Error).message);
@@ -164,6 +177,8 @@ export default function StatementImport({
     setReviewConfirmed(false);
     setScanWarnings([]);
     try {
+      if (scannerConfigured === null)
+        throw Error("Check scanner setup before analyzing documents.");
       const result = await analyzeDocuments(
         scanFiles,
         tags,
@@ -176,6 +191,7 @@ export default function StatementImport({
             (item: any) => item.id === card,
           )?.name,
         },
+        scannerProvider,
       );
       setDetected(result.documents);
       const source = crypto.randomUUID();
@@ -779,17 +795,34 @@ export default function StatementImport({
                     >
                       {busy && scanStage ? "Analyzing…" : "Analyze with AI"}
                     </button>
+                    <small>
+                      Provider:{" "}
+                      {AI_PROVIDERS[scannerProvider || "openai"].label} · change
+                      in Settings
+                    </small>
+                    {scannerProvider === "groq" && (
+                      <small>
+                        Groq: up to 3 images. For PDFs, use OpenAI/Gemini or
+                        upload page screenshots.
+                      </small>
+                    )}
+                    {scannerProvider === "gemini" && (
+                      <p className="scanner-privacy">{GEMINI_PRIVACY}</p>
+                    )}
                     <details className="scan-about">
                       <summary>How it works &amp; setup</summary>
                       <p>
-                        Analyze selected documents with OpenAI, then review the
-                        proposed transactions. Nothing is written to your Sheet
-                        until you confirm.
+                        Analyze selected documents with{" "}
+                        {AI_PROVIDERS[scannerProvider || "openai"].name}, then
+                        review the proposed transactions. Nothing is written to
+                        your Sheet until you confirm.
                       </p>
                       <small>
-                        Documents are sent to OpenAI through the authenticated
-                        Google service. The API key stays on the server.
-                        Originals are not saved as receipts automatically.
+                        Documents are sent to{" "}
+                        {AI_PROVIDERS[scannerProvider || "openai"].name} through
+                        the authenticated Google service. The API key stays on
+                        the server. Originals are not saved as receipts
+                        automatically.
                       </small>
                       <p role="status">
                         {scannerChecking

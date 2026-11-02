@@ -10,11 +10,13 @@ export default function TouchViewport() {
       if (coarse.matches && event.touches.length > 1 && event.cancelable)
         event.preventDefault();
     };
+    document.addEventListener("dblclick", gesture, { passive: false });
     document.addEventListener("gesturestart", gesture, { passive: false });
     document.addEventListener("gesturechange", gesture, { passive: false });
     document.addEventListener("touchstart", pinch, { passive: false });
     document.addEventListener("touchmove", pinch, { passive: false });
     return () => {
+      document.removeEventListener("dblclick", gesture);
       document.removeEventListener("gesturestart", gesture);
       document.removeEventListener("gesturechange", gesture);
       document.removeEventListener("touchstart", pinch);
