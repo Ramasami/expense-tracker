@@ -517,6 +517,29 @@ export default function Home() {
     )
       setPerson("Combined");
   }, [data.settings, person, dataReady]);
+  const visibleAccounts = data.accounts.filter(
+    (account) =>
+      account.status === "Active" &&
+      (person === "Combined" ||
+        accountOwners(account, allOwners(data.settings)).some((id) =>
+          owners.some((owner) => owner.id === id && owner.name === person),
+        )),
+  );
+  useEffect(() => {
+    if (
+      accountFilter &&
+      !visibleAccounts.some((account) => account.id === accountFilter)
+    )
+      setAccountFilter("");
+  }, [person, data.accounts, data.settings, accountFilter]);
+  const scopedAccount = ["Dashboard", "Transactions"].includes(page)
+    ? accountFilter
+    : "";
+  const matchesAccount = (row: RecordData) =>
+    !scopedAccount ||
+    row.account === scopedAccount ||
+    row.account ===
+      data.accounts.find((account) => account.id === scopedAccount)?.name;
   const range = period === "Custom Range" ? custom : dateRange(period);
   const filtered = filterRows(
     data.transactions,
@@ -524,7 +547,7 @@ export default function Home() {
     ...range,
     data.accounts,
     allOwners(data.settings),
-  );
+  ).filter(matchesAccount);
   const active = filtered.filter((r) => r.status !== "Deleted");
   const stats = totals(active);
   const duration = Math.max(
@@ -545,6 +568,7 @@ export default function Home() {
       .filter(
         (account) =>
           account.status === "Active" &&
+          (!scopedAccount || account.id === scopedAccount) &&
           (person === "Combined" ||
             accountOwners(account, allOwners(data.settings)).some((id) =>
               owners.some((owner) => owner.id === id && owner.name === person),
@@ -554,6 +578,7 @@ export default function Home() {
     totals(
       history.filter(
         (row) =>
+          !scopedAccount &&
           !data.accounts.some(
             (account) =>
               account.id === row.account || account.name === row.account,
@@ -569,7 +594,7 @@ export default function Home() {
       previousEnd,
       data.accounts,
       allOwners(data.settings),
-    ),
+    ).filter(matchesAccount),
   );
   const categories = Object.entries(
     active
@@ -595,20 +620,25 @@ export default function Home() {
         net: r.Income - r.Expense - r.Investment,
         saved: r.Income - r.Expense,
       }));
-  }, [data, person, range[0], range[1]]);
+  }, [data, person, scopedAccount, range[0], range[1]]);
   function accountName(value: string) {
     return (
       data.accounts.find((account) => account.id === value)?.name || value || ""
     );
   }
-  const accountOptions = Array.from(
-    new Set([
-      ...data.accounts.map((account) => account.id),
-      ...data.transactions
-        .flatMap((row) => [row.account, row.toAccount])
-        .filter(Boolean),
-    ]),
-  );
+  const accountOptions = visibleAccounts.map((account) => account.id);
+  const ledgerAccountOptions = data.accounts
+    .filter((account) => account.status === "Active")
+    .map((account) => ({
+      value: account.id,
+      label: `${account.name} · ${accountOwners(
+        account,
+        allOwners(data.settings),
+      )
+        .map((id) => owners.find((owner) => owner.id === id)?.name)
+        .filter(Boolean)
+        .join(", ")}`,
+    }));
   const transactions = filtered
     .filter(
       (r) =>
@@ -628,9 +658,7 @@ export default function Home() {
             .includes(search.trim().toLowerCase())) &&
         (!tagFilter || r.tagId === tagFilter || r.tag === tagFilter) &&
         (!typeFilter || r.type === typeFilter) &&
-        (!accountFilter ||
-          r.account === accountFilter ||
-          r.toAccount === accountFilter) &&
+        matchesAccount(r) &&
         (!paymentFilter || r.payment === paymentFilter) &&
         (!receiptFilter ||
           (receiptFilter === "with"
@@ -674,6 +702,19 @@ export default function Home() {
           person === "Combined"
             ? currentGoogleSession()?.ownerName || ownerNames[0] || "Combined"
             : person,
+        ...(["transactions", "recurring"].includes(entity)
+          ? {
+              account:
+                accountFilter ||
+                visibleAccounts.find((account) =>
+                  accountOwners(account, allOwners(data.settings)).includes(
+                    currentGoogleSession()?.ownerId || "",
+                  ),
+                )?.id ||
+                visibleAccounts[0]?.id ||
+                "",
+            }
+          : {}),
         ...(entity === "accounts"
           ? {
               ownerIds: [
@@ -791,6 +832,11 @@ export default function Home() {
             )?.id || name;
         }
       }
+      if (
+        ["transactions", "recurring"].includes(modal.entity) &&
+        record.type !== "Transfer"
+      )
+        record.toAccount = "";
       try {
         if ("amount" in record)
           record.amount = amountFromExpression(record.amount);
@@ -886,7 +932,11 @@ export default function Home() {
       doc.setFontSize(18);
       doc.text("Budget Tracker | " + title, 14, 20);
       doc.setFontSize(10);
-      doc.text(`${person} | ${range.join(" to ")}`, 14, 29);
+      doc.text(
+        `${person === "Combined" ? "All" : person} | ${range.join(" to ")}`,
+        14,
+        29,
+      );
       let y = 40;
       rows.forEach((r) => {
         const lines = doc.splitTextToSize(
@@ -1144,7 +1194,9 @@ export default function Home() {
                 </div>
                 <div className="transaction-meta">
                   <span className="chip">{r.tag || "Uncategorized"}</span>
-                  <span>{r.person || "Unassigned"}</span>
+                  <span>
+                    {r.person === "Combined" ? "All" : r.person || "Unassigned"}
+                  </span>
                   <time dateTime={r.date}>
                     {new Date(r.date + "T00:00:00").toLocaleDateString(
                       "en-IN",
@@ -1623,7 +1675,9 @@ export default function Home() {
                 A LITTLE CLARITY. A BRIGHTER FUTURE.
               </div>
               <h1>
-                {page === "Dashboard" ? "Welcome home" : page}
+                {page === "Dashboard"
+                  ? `Hello, ${googleSession?.ownerName || googleSession?.name || "there"}`
+                  : page}
                 <span className="coral">
                   {page === "Dashboard" ? " ☀" : ""}
                 </span>
@@ -1662,7 +1716,7 @@ export default function Home() {
                         .join("")}
                     </span>
                   )}
-                  {p}
+                  {p === "Combined" ? "All" : p}
                 </button>
               ))}
             </div>
@@ -1692,12 +1746,39 @@ export default function Home() {
                   }}
                 >
                   {periods.map((p) => (
-                    <option key={p}>{p}</option>
+                    <option key={p} value={p}>
+                      {p === "Combined" ? "All" : p}
+                    </option>
                   ))}
                 </select>
               </label>
             </div>
           </div>
+          {["Dashboard", "Transactions"].includes(page) && (
+            <div
+              className="account-switcher"
+              role="group"
+              aria-label="Choose account"
+            >
+              <button
+                type="button"
+                aria-pressed={!accountFilter}
+                onClick={() => setAccountFilter("")}
+              >
+                All accounts
+              </button>
+              {visibleAccounts.map((account) => (
+                <button
+                  type="button"
+                  key={account.id}
+                  aria-pressed={accountFilter === account.id}
+                  onClick={() => setAccountFilter(account.id)}
+                >
+                  {account.name}
+                </button>
+              ))}
+            </div>
+          )}
           {period === "Custom Range" && (
             <div className="custom">
               <input
@@ -2696,7 +2777,9 @@ export default function Home() {
                       onChange={(e) => setPerson(e.target.value)}
                     >
                       {[...ownerNames, "Combined"].map((p) => (
-                        <option key={p}>{p}</option>
+                        <option key={p} value={p}>
+                          {p === "Combined" ? "All" : p}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -2707,7 +2790,9 @@ export default function Home() {
                       onChange={(e) => setPeriod(e.target.value)}
                     >
                       {periods.map((p) => (
-                        <option key={p}>{p}</option>
+                        <option key={p} value={p}>
+                          {p === "Combined" ? "All" : p}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -2963,6 +3048,12 @@ export default function Home() {
                       label="Type"
                       name="type"
                       value={modal.record.type}
+                      onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                        setModal({
+                          ...modal,
+                          record: { ...modal.record, type: event.target.value },
+                        })
+                      }
                       options={["Expense", "Income", "Investment", "Transfer"]}
                     />
                     <TagSelect
@@ -2978,12 +3069,7 @@ export default function Home() {
                         .map((t) => ({ value: t.id, label: t.name }))}
                       required
                     />
-                    <Select
-                      label="Person"
-                      name="person"
-                      value={modal.record.person}
-                      options={[...ownerNames, "Combined"]}
-                    />
+
                     <Select
                       label="Payment method"
                       name="payment"
@@ -2997,19 +3083,32 @@ export default function Home() {
                         "Other",
                       ]}
                     />
-                    <Field
+                    <Select
                       label="From account"
                       name="account"
-                      value={accountName(modal.record.account)}
-                      maxLength={120}
-                      placeholder="Enter account name"
+                      value={
+                        data.accounts.find(
+                          (account) =>
+                            account.id === modal.record.account ||
+                            account.name === modal.record.account,
+                        )?.id || ""
+                      }
+                      options={ledgerAccountOptions}
+                      required
                     />
-                    <Field
+                    <Select
                       label="To account"
                       name="toAccount"
-                      value={accountName(modal.record.toAccount)}
-                      maxLength={120}
-                      placeholder="Enter account name"
+                      value={
+                        data.accounts.find(
+                          (account) =>
+                            account.id === modal.record.toAccount ||
+                            account.name === modal.record.toAccount,
+                        )?.id || ""
+                      }
+                      options={ledgerAccountOptions}
+                      disabled={modal.record.type !== "Transfer"}
+                      required={modal.record.type === "Transfer"}
                     />
                     <Field
                       label="Notes"
@@ -3138,12 +3237,17 @@ export default function Home() {
                           }
                           value={modal.record.amount}
                         />
-                        <Select
-                          label="Person"
-                          name="person"
-                          value={modal.record.person}
-                          options={[...ownerNames, "Combined"]}
-                        />
+                        {modal.entity !== "recurring" && (
+                          <Select
+                            label="Person"
+                            name="person"
+                            value={modal.record.person}
+                            options={[
+                              ...ownerNames,
+                              { value: "Combined", label: "All" },
+                            ]}
+                          />
+                        )}
                         <TagSelect
                           label="Category"
                           name="tagId"
@@ -3201,19 +3305,32 @@ export default function Home() {
                                 "Other",
                               ]}
                             />
-                            <Field
+                            <Select
                               label="From account"
                               name="account"
-                              value={accountName(modal.record.account)}
-                              maxLength={120}
-                              placeholder="Enter account name"
+                              value={
+                                data.accounts.find(
+                                  (account) =>
+                                    account.id === modal.record.account ||
+                                    account.name === modal.record.account,
+                                )?.id || ""
+                              }
+                              options={ledgerAccountOptions}
+                              required
                             />
-                            <Field
+                            <Select
                               label="To account"
                               name="toAccount"
-                              value={accountName(modal.record.toAccount)}
-                              maxLength={120}
-                              placeholder="Enter account name"
+                              value={
+                                data.accounts.find(
+                                  (account) =>
+                                    account.id === modal.record.toAccount ||
+                                    account.name === modal.record.toAccount,
+                                )?.id || ""
+                              }
+                              options={ledgerAccountOptions}
+                              disabled={modal.record.type !== "Transfer"}
+                              required={modal.record.type === "Transfer"}
                             />
                             <Field
                               label="Next due date"
@@ -3231,6 +3348,17 @@ export default function Home() {
                               label="Transaction type"
                               name="type"
                               value={modal.record.type}
+                              onChange={(
+                                event: React.ChangeEvent<HTMLSelectElement>,
+                              ) =>
+                                setModal({
+                                  ...modal,
+                                  record: {
+                                    ...modal.record,
+                                    type: event.target.value,
+                                  },
+                                })
+                              }
                               options={[
                                 "Expense",
                                 "Income",
@@ -3382,7 +3510,9 @@ export default function Home() {
             </div>
             <strong className="entity-amount">{money(detail.amount)}</strong>
             <p>
-              {detail.date} · {detail.person} · {detail.tag}
+              {detail.date} ·{" "}
+              {detail.person === "Combined" ? "All" : detail.person} ·{" "}
+              {detail.tag}
             </p>
             <p>{detail.notes}</p>
             {detail.source !== "google-sheet" && (
@@ -3471,7 +3601,15 @@ function Field({ label, value, ...props }: any) {
     </label>
   );
 }
-function Select({ label, name, value, options, required }: any) {
+function Select({
+  label,
+  name,
+  value,
+  options,
+  required,
+  disabled,
+  onChange,
+}: any) {
   return (
     <label className="field">
       {label}
@@ -3480,6 +3618,8 @@ function Select({ label, name, value, options, required }: any) {
         name={name}
         defaultValue={value || ""}
         required={required}
+        disabled={disabled}
+        onChange={onChange}
       >
         <option value="">Select…</option>
         {options.map((o: any) => (
@@ -3487,7 +3627,7 @@ function Select({ label, name, value, options, required }: any) {
             key={typeof o === "string" ? o : o.value}
             value={typeof o === "string" ? o : o.value}
           >
-            {typeof o === "string" ? o : o.label}
+            {typeof o === "string" ? (o === "Combined" ? "All" : o) : o.label}
           </option>
         ))}
       </select>

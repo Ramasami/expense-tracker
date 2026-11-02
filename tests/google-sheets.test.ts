@@ -55,6 +55,7 @@ async function signed<T>(fn: (f: ReturnType<typeof fixture>) => Promise<T>) {
   }
 }
 const tx = {
+  account: "ram-bank",
   date: "2026-11-01",
   description: "New expense",
   amount: 150,
@@ -94,8 +95,8 @@ test("account writes update the Accounts tab and retry does not duplicate", () =
     const first = await saveGoogle(op),
       second = await saveGoogle(op);
     assert.equal(first.record?.id, second.record?.id);
-    assert.equal(f.grids.Accounts.length, 2);
-    assert.equal(JSON.parse(f.grids.Accounts[1][7]).openingBalance, 1000);
+    assert.equal(f.grids.Accounts.length, 4);
+    assert.equal(JSON.parse(f.grids.Accounts.at(-1)![7]).openingBalance, 1000);
     assert.equal(f.batches(), 1);
   }));
 test("a lost response is recovered by its operation receipt", () =>
@@ -201,8 +202,8 @@ test("transaction receipt links survive a Sheets save and readback", () =>
       action: "create",
       record: {
         ...tx,
-        account: "Free text source",
-        toAccount: "Free text destination",
+        account: "ram-bank",
+        toAccount: "",
         receipts: [receipt],
       },
       operationId: "receipt-op",

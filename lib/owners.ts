@@ -56,11 +56,7 @@ export function belongsToOwner(
   );
   if (!owner) return row.person === person;
   const linked = accounts.filter(
-    (account) =>
-      account.id === row.account ||
-      account.id === row.toAccount ||
-      account.name === row.account ||
-      account.name === row.toAccount,
+    (account) => account.id === row.account || account.name === row.account,
   );
   if (linked.length)
     return linked.some((account) =>

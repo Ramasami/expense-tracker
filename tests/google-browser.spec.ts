@@ -10,7 +10,7 @@ async function login(page: import("@playwright/test").Page) {
   await expect(page.locator(".sync")).toContainText("Google connected");
   await page
     .locator(".segmented")
-    .getByRole("button", { name: "Combined", exact: true })
+    .getByRole("button", { name: "All", exact: true })
     .click();
 }
 test("login survives refresh, fetches new sheet values, and sign-out hides data", async ({
@@ -93,7 +93,7 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".notice")).toContainText("Saved to Google Sheets");
-  expect(JSON.parse(f.grids.Accounts[1][7]).openingBalance).toBe(12500);
+  expect(JSON.parse(f.grids.Accounts.at(-1)![7]).openingBalance).toBe(12500);
   expect(f.grids["Audit Log"][1][11]).toBe("ramasami.official@gmail.com");
   state.failWrites = true;
   await page.getByRole("button", { name: "Add account", exact: true }).click();
@@ -117,7 +117,7 @@ test("confirmed Google saves persist to the sheet and a failed save does not wri
     page.locator(".entity-card").filter({ hasText: "Must not save locally" }),
   ).toHaveCount(0);
 });
-test("transaction accounts accept text; search, combined filters and sorting use sheet data", async ({
+test("transaction accounts use dropdowns; search, account filters and sorting use sheet data", async ({
   page,
 }) => {
   const { f } = await mockGoogle(page);
@@ -133,14 +133,14 @@ test("transaction accounts accept text; search, combined filters and sorting use
   await page.getByRole("option", { name: "Groceries", exact: true }).click();
   await page
     .getByLabel("From account", { exact: true })
-    .fill("My current account");
-  await page.getByLabel("To account", { exact: true }).fill("My wallet");
+    .selectOption("varsha-bank");
+  await expect(page.getByLabel("To account", { exact: true })).toBeDisabled();
   await page
     .getByRole("button", { name: "Save transaction", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  expect(f.grids["Expense Ledger"].at(-1)?.[18]).toBe("My current account");
-  expect(f.grids["Expense Ledger"].at(-1)?.[19]).toBe("My wallet");
+  expect(f.grids["Expense Ledger"].at(-1)?.[18]).toBe("varsha-bank");
+  expect(f.grids["Expense Ledger"].at(-1)?.[19]).toBe("");
   await page
     .locator("nav")
     .getByRole("button", { name: /^Transactions/ })
@@ -154,10 +154,12 @@ test("transaction accounts accept text; search, combined filters and sorting use
   await expect(page.locator(".transaction-item").first()).toContainText(
     "Original",
   );
-  await page.getByLabel("Search transactions", { exact: true }).fill("wallet");
+  await page
+    .getByLabel("Search transactions", { exact: true })
+    .fill("Varsha HDFC");
   await expect(page.locator(".transaction-item")).toHaveCount(1);
   await page.getByRole("button", { name: /^Filters/ }).click();
-  await page.getByLabel("Account filter").selectOption("My wallet");
+  await page.getByLabel("Account filter").selectOption("varsha-bank");
   await page.getByLabel("Minimum amount").fill("501");
   await expect(page.locator(".transaction-item")).toHaveCount(0);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
@@ -639,7 +641,7 @@ for (const uploader of [
     await expect(page.locator(".sync")).toContainText("Google connected");
     await page
       .locator(".segmented")
-      .getByRole("button", { name: "Combined", exact: true })
+      .getByRole("button", { name: "All", exact: true })
       .click();
     await page
       .locator("nav")
@@ -1078,7 +1080,7 @@ test("owner and account management supports creating, renaming, multiple owners 
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
-  const first = JSON.parse(f.grids.Accounts[1][7]);
+  const first = JSON.parse(f.grids.Accounts.at(-1)![7]);
   expect(first.ownerIds).toContain("owner-ram");
   expect(first.ownerIds).toHaveLength(2);
   const card = page.locator(".entity-card").filter({
@@ -1092,7 +1094,7 @@ test("owner and account management supports creating, renaming, multiple owners 
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
-  expect(JSON.parse(f.grids.Accounts[1][7]).ownerIds).toHaveLength(1);
+  expect(JSON.parse(f.grids.Accounts.at(-1)![7]).ownerIds).toHaveLength(1);
   await page
     .locator(".segmented")
     .getByRole("button", { name: "XYZ", exact: true })
@@ -1110,7 +1112,7 @@ test("owner and account management supports creating, renaming, multiple owners 
     })
     .getByRole("button", { name: "Delete", exact: true })
     .click();
-  await expect.poll(() => f.grids.Accounts[1][1]).toBe("Deleted");
+  await expect.poll(() => f.grids.Accounts.at(-1)![1]).toBe("Deleted");
   const owner = page
     .locator(".owner-section .entity-card")
     .filter({ has: page.getByRole("heading", { name: "XYZ", exact: true }) });
@@ -1126,4 +1128,108 @@ test("owner and account management supports creating, renaming, multiple owners 
       ),
     )
     .toBe(true);
+});
+
+test("owner-scoped account toggles work on home and transactions; transfer dropdowns enforce source", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Sign in with Google", exact: true })
+    .click();
+  await expect(page.locator(".sync")).toContainText("Google connected");
+  await expect(page.getByRole("heading", { name: "Hello, Ram" })).toBeVisible();
+  const accounts = page.getByRole("group", { name: "Choose account" });
+  await expect(
+    accounts.getByRole("button", { name: "Ram HDFC", exact: true }),
+  ).toBeVisible();
+  await expect(
+    accounts.getByRole("button", { name: "Varsha HDFC", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "All", exact: true })
+    .click();
+  await accounts
+    .getByRole("button", { name: "Varsha HDFC", exact: true })
+    .click();
+  await expect(
+    accounts.getByRole("button", { name: "Varsha HDFC", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.locator(".stat.card").filter({ hasText: "Total expenses" }),
+  ).toContainText("₹0");
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await expect(page.locator(".transaction-item")).toHaveCount(0);
+  await accounts.getByRole("button", { name: "Ram HDFC", exact: true }).click();
+  await expect(page.locator(".transaction-item")).toHaveCount(1);
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Varsha", exact: true })
+    .click();
+  await expect(
+    accounts.getByRole("button", { name: "Ram HDFC", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    accounts.getByRole("button", { name: "All accounts", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  const source = dialog.getByLabel("From account", { exact: true });
+  const destination = dialog.getByLabel("To account", { exact: true });
+  await expect(source).toHaveAttribute("required", "");
+  await expect(source.locator("option")).toContainText([
+    "Select…",
+    "Ram HDFC · Ram",
+    "Varsha HDFC · Varsha",
+  ]);
+  await expect(destination).toBeDisabled();
+  await dialog.getByLabel("Amount (₹)", { exact: true }).fill("100");
+  await dialog.getByLabel("Description / merchant").fill("Account transfer");
+  await dialog
+    .getByRole("combobox", { name: "Expense tag", exact: true })
+    .click();
+  await dialog.getByRole("option", { name: "Groceries", exact: true }).click();
+  await source.selectOption("");
+  await dialog
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(dialog).toBeVisible();
+  expect(f.grids["Expense Ledger"]).toHaveLength(2);
+  await source.selectOption("ram-bank");
+  await dialog.getByLabel("Type", { exact: true }).selectOption("Transfer");
+  await expect(destination).toBeEnabled();
+  await expect(destination).toHaveAttribute("required", "");
+  await destination.selectOption("varsha-bank");
+  await dialog
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(f.grids["Expense Ledger"].at(-1)?.[18]).toBe("ram-bank");
+  expect(f.grids["Expense Ledger"].at(-1)?.[19]).toBe("varsha-bank");
+  expect(f.grids["Expense Ledger"].at(-1)?.[6]).toBe("Ram");
+  // Selected owner remains Varsha; source belongs to Ram, so transfer is not listed here.
+  await expect(page.locator(".transaction-item")).toHaveCount(0);
+  await page
+    .locator(".segmented")
+    .getByRole("button", { name: "Ram", exact: true })
+    .click();
+  await expect(page.locator(".transaction-item")).toHaveCount(2);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/account-switcher-mobile.png",
+    fullPage: true,
+  });
 });

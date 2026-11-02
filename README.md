@@ -94,3 +94,9 @@ Amount fields accept arithmetic (`+`, `-`, `*`, `/`, parentheses; also × and ÷
 A save that fails to confirm retains the exact attempted record and operation ID. Cancel/Close remain usable; Retry save revalidates Google Sheets first and checks the same operation to avoid duplicate writes. The form’s fields remain locked while that attempted operation is unresolved. No stale/offline financial writes are accepted.
 
 Phone/tablet touch gestures use a fixed viewport; pinch/double-tap zoom is disabled where supported by the browser, and touch input fonts are at least 16px to avoid focus zoom. Device/browser accessibility overrides can still apply.
+
+### Account selection
+
+The Home and Transactions screens offer owner and account switches. **All** includes all owners; selecting an owner limits the account switches to their active accounts. From account is required for transaction and recurring-schedule writes and is the ledger account used for filtering and ownership. Dropdown labels include the account name and its owners. The transaction owner label is derived from the From account rather than entered separately. To account is available and required only for a transfer; other transaction types clear it. A transfer updates both account balances, while its ledger entry belongs to the source account. Existing historical records without account links remain readable and require an active account when edited.
+
+Push notifications are deferred; no push service or device registration is configured.

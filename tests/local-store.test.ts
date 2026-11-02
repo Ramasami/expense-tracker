@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  freshState,
+  freshState as baseState,
   applyOperation,
   backupText,
   parseBackup,
@@ -11,6 +11,19 @@ import {
   importBackup,
   advanceDate,
 } from "../lib/local-store";
+const freshState = () => {
+  const state = baseState();
+  state.data.accounts = [
+    {
+      id: "ram-bank",
+      name: "Ram HDFC",
+      ownerIds: ["owner-ram"],
+      status: "Active",
+      version: 1,
+    },
+  ];
+  return state;
+};
 const op = (record: any, entity = "transactions", action = "create") => ({
   record,
   entity,
@@ -19,6 +32,7 @@ const op = (record: any, entity = "transactions", action = "create") => ({
   actor: "Ram",
 });
 const tx = {
+  account: "ram-bank",
   date: "2026-11-01",
   description: "Local test",
   amount: 200,
@@ -101,4 +115,50 @@ test("IndexedDB serializes simultaneous additions across connections", async () 
 test("month-end recurrence retains its anchor", () => {
   assert.equal(advanceDate("2026-01-31", "Monthly", 31), "2026-02-28");
   assert.equal(advanceDate("2026-02-28", "Monthly", 31), "2026-03-31");
+});
+
+test("ledger account is mandatory, must exist, and destination applies only to transfers", () => {
+  const state = freshState();
+  state.data.accounts.push({
+    id: "varsha-bank",
+    name: "Varsha HDFC",
+    version: 1,
+    status: "Active",
+  });
+  assert.throws(
+    () => applyOperation(state, op({ ...tx, account: "" })),
+    /From account/,
+  );
+  assert.throws(
+    () => applyOperation(state, op({ ...tx, account: "made up" })),
+    /From account/,
+  );
+  assert.throws(
+    () =>
+      applyOperation(
+        state,
+        op({ ...tx, type: "Transfer", toAccount: "ram-bank" }),
+      ),
+    /different active accounts/,
+  );
+  const transfer = applyOperation(
+    state,
+    op({ ...tx, type: "Transfer", toAccount: "varsha-bank" }),
+  );
+  assert.equal(transfer.result.record.toAccount, "varsha-bank");
+  const expense = applyOperation(
+    state,
+    op({ ...tx, toAccount: "varsha-bank" }),
+  );
+  assert.equal(expense.result.record.toAccount, "");
+});
+
+test("historical transactions can be deleted after their account is removed", () => {
+  let { state, result } = applyOperation(freshState(), op(tx));
+  state.data.accounts[0].status = "Deleted";
+  const removed = applyOperation(
+    state,
+    op(result.record, "transactions", "delete"),
+  );
+  assert.equal(removed.result.record.status, "Deleted");
 });

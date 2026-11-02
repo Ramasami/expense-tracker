@@ -122,6 +122,28 @@ export function fixture() {
       JSON.stringify(owner),
     ]),
   );
+  grids.Accounts.push(
+    ...[
+      { id: "ram-bank", name: "Ram HDFC", ownerIds: ["owner-ram"] },
+      { id: "varsha-bank", name: "Varsha HDFC", ownerIds: ["owner-varsha"] },
+    ].map((account) => [
+      account.id,
+      "Active",
+      1,
+      "",
+      "",
+      "",
+      "",
+      JSON.stringify({
+        ...account,
+        status: "Active",
+        version: 1,
+        openingBalance: 0,
+        type: "Bank",
+      }),
+    ]),
+  );
+  grids["Expense Ledger"][1][18] = "ram-bank";
   const properties = Object.keys(grids).map((title, i) => ({
     title,
     sheetId: i + 1,

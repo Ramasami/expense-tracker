@@ -36,10 +36,16 @@ test("refresh updates unedited source records without duplicates", () => {
 });
 test("refresh preserves local edits and marks source divergence", () => {
   let s = mergeSource(freshState(), snapshotFromCsv(csv(), tags));
+  s.data.accounts.push({
+    id: "bank",
+    name: "Bank",
+    version: 1,
+    status: "Active",
+  });
   s = applyOperation(s, {
     entity: "transactions",
     action: "edit",
-    record: { ...s.data.transactions[0], amount: 500 },
+    record: { ...s.data.transactions[0], account: "bank", amount: 500 },
     actor: "Ram",
     operationId: crypto.randomUUID(),
   }).state;

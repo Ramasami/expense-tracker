@@ -67,7 +67,32 @@ function date(iso: string) {
     new Date(iso + "T12:00:00Z").toISOString().slice(0, 10) === iso
   );
 }
-function validate(entity: Entity, r: RecordData, data: Snapshot) {
+function validateLedgerAccounts(r: RecordData, data: Snapshot) {
+  const active = (value: string) =>
+    data.accounts.some(
+      (account) => account.status === "Active" && account.id === value,
+    );
+  if (!active(r.account))
+    throw Error(
+      "Select an active From account. This is the account the transaction belongs to.",
+    );
+  const account = data.accounts.find((account) => account.id === r.account)!;
+  const assigned = allOwners(data.settings).filter((owner) =>
+    accountOwners(account, allOwners(data.settings)).includes(owner.id),
+  );
+  if (assigned.length)
+    r.person = assigned.length === 1 ? assigned[0].name : "Combined";
+  if (r.type === "Transfer") {
+    if (!active(r.toAccount) || r.toAccount === r.account)
+      throw Error("Transfers need two different active accounts.");
+  } else r.toAccount = "";
+}
+function validate(
+  entity: Entity,
+  r: RecordData,
+  data: Snapshot,
+  legacy = false,
+) {
   if (entity === "transactions") {
     if (
       !date(r.date) ||
@@ -78,6 +103,7 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
       throw Error("Enter a valid date, description and positive amount.");
     if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type))
       throw Error("Select a transaction type.");
+    if (!legacy) validateLedgerAccounts(r, data);
     if (
       ![
         "Combined",
@@ -96,17 +122,6 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
     )
       throw Error("Select an active tag.");
     r.tag = tag.name;
-    if (
-      r.type === "Transfer" &&
-      (!r.account || !r.toAccount || r.account === r.toAccount)
-    )
-      throw Error("Transfers need two different accounts.");
-    for (const field of ["account", "toAccount"])
-      if (
-        typeof (r[field] || "") !== "string" ||
-        String(r[field] || "").length > 120
-      )
-        throw Error("Account names must be text under 120 characters.");
   } else if (!String(r.name || "").trim()) throw Error("Enter a name.");
   if (entity === "tags") {
     if (!["Expense", "Income", "Investment", "Transfer"].includes(r.type))
@@ -160,7 +175,7 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
       )
     )
       throw Error("An active owner already has this name.");
-    if (["Combined", "All accounts"].includes(r.name.trim()))
+    if (["Combined", "All", "All accounts"].includes(r.name.trim()))
       throw Error("Choose a different owner name.");
     r.name = r.name.trim();
     r.emails = ownerEmails(r);
@@ -196,6 +211,7 @@ function validate(entity: Entity, r: RecordData, data: Snapshot) {
     (!Number.isFinite(Number(r.funded || 0)) || Number(r.funded || 0) < 0)
   )
     throw Error("Enter a valid funded amount.");
+  if (entity === "recurring" && !legacy) validateLedgerAccounts(r, data);
   if (
     entity === "recurring" &&
     (!date(r.nextDate) ||
@@ -357,7 +373,12 @@ function apply(state: State, op: Operation): any {
   if (old?.source === "google-sheet") r.localEdited = true;
   if (key === "settings" && r.kind === "owner" && old && old.name !== r.name)
     r.aliases = Array.from(new Set([...(old.aliases || []), old.name]));
-  validate(key, r, state.data);
+  validate(
+    key,
+    r,
+    state.data,
+    ["delete", "archive", "restore"].includes(op.action),
+  );
   if (key === "tags" && old && (old.name !== r.name || op.action === "merge")) {
     const target =
       op.action === "merge"
@@ -504,8 +525,9 @@ export function parseBackup(text: string): Snapshot {
     if (new Set(ids).size !== ids.length)
       throw Error("Backup contains duplicate record identifiers.");
   }
+  // Existing backups can predate account assignment. New writes always require an active source.
   for (const key of collections.filter((k) => k !== "audit"))
-    for (const r of validated[key]) validate(key as Entity, r, validated);
+    for (const r of validated[key]) validate(key as Entity, r, validated, true);
   return validated;
 }
 export function backupText(data: Snapshot) {

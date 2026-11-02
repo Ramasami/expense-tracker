@@ -135,3 +135,33 @@ test("owners require unique names and emails; account links must use active owne
     true,
   );
 });
+
+test("transfer belongs to the source account, not the destination owner", () => {
+  const accounts = [
+    {
+      id: "ram",
+      ownerIds: ["owner-ram"],
+      name: "Ram bank",
+      status: "Active",
+      version: 1,
+    },
+    {
+      id: "varsha",
+      ownerIds: ["owner-varsha"],
+      name: "Varsha bank",
+      status: "Active",
+      version: 1,
+    },
+  ];
+  const row = {
+    id: "transfer",
+    status: "Active",
+    version: 1,
+    account: "ram",
+    toAccount: "varsha",
+    type: "Transfer",
+    person: "Varsha",
+  };
+  assert.equal(belongsToOwner(row, "Ram", accounts, owners), true);
+  assert.equal(belongsToOwner(row, "Varsha", accounts, owners), false);
+});
