@@ -142,3 +142,35 @@ test("malformed model output is rejected before it can enter a review", () => {
     }),
   );
 });
+
+test("scanner key configuration is owner-only, persists securely and never echoes a secret", () => {
+  const { sandbox, props } = scanner(false);
+  const secret = "sk-proj-synthetic-test-key-for-setup-only";
+  assert.throws(
+    () =>
+      sandbox.configureScanner_({ apiKey: secret }, "tnvarsha.99@gmail.com"),
+    /Only the service owner/,
+  );
+  assert.equal(props.has("OPENAI_API_KEY"), false);
+  assert.throws(
+    () =>
+      sandbox.configureScanner_(
+        { apiKey: "bad" },
+        "ramasami.official@gmail.com",
+      ),
+    /valid OpenAI/,
+  );
+  const response = sandbox.configureScanner_(
+    { apiKey: secret },
+    "ramasami.official@gmail.com",
+  );
+  assert.equal(response.configured, true);
+  assert.equal(props.get("OPENAI_API_KEY"), secret);
+  assert.ok(!JSON.stringify(response).includes(secret));
+  assert.throws(
+    () =>
+      sandbox.configureScanner_({ apiKey: "" }, "ramasami.official@gmail.com"),
+    /valid OpenAI/,
+  );
+  assert.equal(props.get("OPENAI_API_KEY"), secret);
+});

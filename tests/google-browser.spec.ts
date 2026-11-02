@@ -860,18 +860,11 @@ test("transaction cards fit small screens, wrap details and keep selection and a
     ).toBe(true);
   }
   await page.setViewportSize({ width: 390, height: 900 });
-  await page.getByLabel("Select Original", { exact: true }).check();
   await expect(
-    page.getByLabel("Select all visible transactions", { exact: true }),
-  ).toHaveJSProperty("indeterminate", true);
-  await page
-    .getByLabel("Select all visible transactions", { exact: true })
-    .check();
-  await expect(page.locator(".transaction-checkbox:checked")).toHaveCount(2);
-  await page
-    .getByLabel("Select all visible transactions", { exact: true })
-    .uncheck();
-  await expect(page.locator(".transaction-checkbox:checked")).toHaveCount(0);
+    page.locator(".transaction-feed input[type=checkbox]"),
+  ).toHaveCount(0);
+  await expect(page.getByText("Select all", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".bulk")).toHaveCount(0);
   await expect(
     page.getByLabel("Edit transaction", { exact: true }),
   ).toHaveCount(2);
@@ -2615,4 +2608,113 @@ test("header keeps Back left and menu right, with Help separate and account cont
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await appearance.selectOption("light");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
+
+test("Settings saves an API key server-side once, clears the field, and shows configured after reload", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  let configured = false,
+    saves = 0;
+  const secret = "sk-proj-synthetic-browser-setup-key-only";
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const req = route.request().postDataJSON();
+    if (req.action === "configureScanner") {
+      expect(req.apiKey).toBe(secret);
+      saves++;
+      configured = true;
+    } else expect(req.action).toBe("scannerStatus");
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: { configured, canConfigure: true, model: "gpt-4.1-mini" },
+      },
+    });
+  });
+  await login(page);
+  const openSettings = async () => {
+    await page
+      .locator("nav")
+      .getByRole("button", { name: "Settings", exact: true })
+      .click();
+  };
+  await openSettings();
+  const key = page.getByLabel("OpenAI API key", { exact: true });
+  await expect(key).toHaveAttribute("type", "password");
+  await expect(page.locator(".scanner-settings")).toContainText(
+    "Restricted project API key",
+  );
+  await key.fill(secret);
+  await page
+    .getByRole("button", { name: "Save API key securely", exact: true })
+    .click();
+  await expect(page.locator(".scanner-settings [role=status]")).toContainText(
+    "API key saved securely",
+  );
+  await expect(key).toHaveValue("");
+  expect(saves).toBe(1);
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+  expect(
+    await page.evaluate(() => JSON.stringify({ ...localStorage })),
+  ).not.toContain(secret);
+  expect(
+    await page.evaluate(() => JSON.stringify({ ...sessionStorage })),
+  ).not.toContain(secret);
+  await page.reload();
+  await openSettings();
+  await expect(page.locator(".scanner-settings [role=status]")).toContainText(
+    "Configured",
+  );
+  await expect(
+    page.getByText("Replace API key", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("OpenAI API key", { exact: true }),
+  ).not.toBeVisible();
+  expect(saves).toBe(1);
+});
+
+test("Add transaction opens image scanning and canceling preserves its draft and scroll lock", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  await login(page);
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  const form = page.getByRole("dialog", {
+    name: "Add transaction",
+    exact: true,
+  });
+  await form
+    .getByLabel("Description / merchant", { exact: true })
+    .fill("Keep my draft");
+  await form
+    .getByRole("button", { name: "Upload bill or image", exact: true })
+    .click();
+  const scanner = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await expect(
+    scanner.getByLabel("Scan documents", { exact: true }),
+  ).toBeVisible();
+  await scanner.getByLabel("Scan documents", { exact: true }).setInputFiles({
+    name: "receipt.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("image-test"),
+  });
+  await expect(scanner).toContainText("receipt.png");
+  await scanner
+    .getByRole("button", { name: "Close statement import", exact: true })
+    .click();
+  await expect(
+    form.getByLabel("Description / merchant", { exact: true }),
+  ).toHaveValue("Keep my draft");
+  expect(await page.evaluate(() => document.body.style.position)).toBe("fixed");
+  await form.getByRole("button", { name: "Close form", exact: true }).click();
+  expect(await page.evaluate(() => document.body.style.position)).not.toBe(
+    "fixed",
+  );
+  expect(f.grids["Expense Ledger"].length).toBe(2);
 });

@@ -1899,15 +1899,6 @@ html {
 .transaction-feed {
   min-width: 0;
 }
-.transaction-select-all {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 24px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11px;
-}
 .transaction-list {
   list-style: none;
   padding: 0;
@@ -1919,16 +1910,6 @@ html {
   gap: 12px;
   padding: 17px 24px;
   border-top: 1px solid var(--border);
-}
-.transaction-item.selectable {
-  grid-template-columns: 16px minmax(0, 1fr);
-}
-.transaction-checkbox {
-  margin: 11px 0 0;
-  align-self: start;
-  width: 15px;
-  height: 15px;
-  accent-color: var(--coral);
 }
 .transaction-body {
   min-width: 0;
@@ -2042,9 +2023,6 @@ html {
   .transaction-item {
     padding: 14px 15px;
     gap: 8px;
-  }
-  .transaction-select-all {
-    padding: 9px 15px;
   }
   .transaction-topline {
     gap: 9px;
@@ -3177,4 +3155,55 @@ select:disabled {
   .page-help-bar {
     transition: none;
   }
+}
+
+.scanner-settings {
+  padding: 20px 0;
+  border-block: 1px solid var(--border);
+  margin: 18px 0;
+}
+.scanner-settings p,
+.scanner-settings small {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.scanner-settings form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.scanner-settings .field {
+  flex: 1 1 220px;
+}
+.scanner-settings input {
+  width: 100%;
+}
+.scanner-settings summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.transaction-scan-entry {
+  margin: 0 26px 20px;
+  padding: 15px;
+  border-radius: 14px;
+  background: var(--soft);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.transaction-scan-entry b {
+  font-size: 13px;
+}
+.transaction-scan-entry small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+  max-width: 350px;
+  line-height: 1.6;
 }

@@ -50,9 +50,15 @@ async function service(action: string, args: Record<string, unknown> = {}) {
 }
 export async function scannerStatus(): Promise<{
   configured: boolean;
+  canConfigure?: boolean;
   model: string;
 }> {
   return service("scannerStatus");
+}
+export async function saveScannerKey(
+  apiKey: string,
+): Promise<{ configured: boolean; canConfigure: boolean; model: string }> {
+  return service("configureScanner", { apiKey });
 }
 function dataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -75,7 +81,7 @@ export async function analyzeDocuments(
   const ready = configured ?? (await scannerStatus()).configured;
   if (!ready)
     throw Error(
-      "AI scanning is not configured yet. Add OPENAI_API_KEY in the Apps Script project’s Script properties; never enter it in the website.",
+      "AI scanning is not configured yet. Ask the service owner to add the OpenAI API key in Settings → AI bill & statement scanner.",
     );
   const documents: { name: string; mimeType: string; data: string }[] = [];
   let total = 0;

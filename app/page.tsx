@@ -5,6 +5,7 @@ import { useScrollToolbar } from "./use-scroll-toolbar";
 import Analytics from "./analytics";
 import Reconciliation from "./reconciliation";
 import StatementImport from "./statement-import";
+import ScannerSettings from "./scanner-settings";
 import MonthlyBudgets from "./monthly-budgets";
 import Recovery from "./recovery";
 import AccountBalances from "./account-balances";
@@ -212,7 +213,6 @@ export default function Home() {
     [max, setMax] = useState(""),
     [sort, setSort] = useState("newest"),
     [offset, setOffset] = useState(0),
-    [selected, setSelected] = useState<string[]>([]),
     [detail, setDetail] = useState<RecordData | null>(null),
     [actor, setActor] = useState("Ram"),
     [notice, setNotice] = useState("");
@@ -265,7 +265,6 @@ export default function Home() {
     setPage("Dashboard");
     pageRef.current = "Dashboard";
     setPeriod("All Time");
-    setSelected([]);
     setSearch("");
   }
   async function persistSnapshot(
@@ -308,7 +307,6 @@ export default function Home() {
     }
   }
   function failData(message: string) {
-    setSelected([]);
     setNotice("");
     setSetup(true);
     markStale(true);
@@ -781,7 +779,6 @@ export default function Home() {
       setMax(max);
       setSort(sort);
       setOffset(offset);
-      setSelected([]);
       setEntitySort(entitySort);
       setEntityStatus(entityStatus);
       setEntityType(entityType);
@@ -807,7 +804,6 @@ export default function Home() {
     if (currentGoogleSession()) void refreshSheet(false, p);
     setMobile(false);
     setOffset(0);
-    setSelected([]);
     requestAnimationFrame(() =>
       window.scrollTo({ top: 0, behavior: "instant" }),
     );
@@ -1252,60 +1248,14 @@ export default function Home() {
       limit ? 0 : offset,
       limit || offset + 20,
     );
-    const allSelected =
-      visible.length > 0 && visible.every((row) => selected.includes(row.id));
-    const partlySelected =
-      !allSelected && visible.some((row) => selected.includes(row.id));
     return (
       <div className="transaction-feed">
-        {!limit && visible.length > 0 && (
-          <label className="transaction-select-all">
-            <input
-              aria-label="Select all visible transactions"
-              type="checkbox"
-              checked={allSelected}
-              ref={(element) => {
-                if (element) element.indeterminate = partlySelected;
-              }}
-              onChange={(event) =>
-                setSelected(
-                  event.target.checked
-                    ? Array.from(
-                        new Set([...selected, ...visible.map((row) => row.id)]),
-                      )
-                    : selected.filter(
-                        (id) => !visible.some((row) => row.id === id),
-                      ),
-                )
-              }
-            />
-            Select all
-          </label>
-        )}
         <ul
           className="transaction-list"
           aria-label={limit ? "Recent transactions" : "Transactions"}
         >
           {visible.map((r) => (
-            <li
-              className={`transaction-item${!limit ? " selectable" : ""}`}
-              key={r.id}
-            >
-              {!limit && (
-                <input
-                  className="transaction-checkbox"
-                  aria-label={`Select ${r.description}`}
-                  type="checkbox"
-                  checked={selected.includes(r.id)}
-                  onChange={(event) =>
-                    setSelected(
-                      event.target.checked
-                        ? [...selected, r.id]
-                        : selected.filter((id) => id !== r.id),
-                    )
-                  }
-                />
-              )}
+            <li className="transaction-item" key={r.id}>
               <div className="transaction-body">
                 <div className="transaction-topline">
                   <button
@@ -2720,53 +2670,6 @@ export default function Home() {
                       </button>
                     </div>
                   )}
-                  {selected.length > 0 && (
-                    <div className="bulk">
-                      {selected.length} selected
-                      <button
-                        disabled={saving || setup || syncing}
-                        onClick={async () => {
-                          if (!confirm("Apply to selected records?")) return;
-                          for (const id of selected) {
-                            const r = data.transactions.find(
-                              (r) => r.id === id,
-                            )!;
-                            if (
-                              !(await mutate(
-                                "transactions",
-                                deleted ? "restore" : "delete",
-                                r,
-                              ))
-                            )
-                              break;
-                          }
-                          setSelected([]);
-                        }}
-                      >
-                        {deleted ? "Restore" : "Delete"} selected
-                      </button>
-                      <button
-                        disabled={saving || setup || syncing}
-                        onClick={async () => {
-                          const name = prompt("Exact tag name to apply");
-                          const tag = data.tags.find((t) => t.name === name);
-                          if (!tag) return;
-                          for (const id of selected) {
-                            if (
-                              !(await mutate("transactions", "edit", {
-                                ...data.transactions.find((r) => r.id === id),
-                                tagId: tag.id,
-                              }))
-                            )
-                              break;
-                          }
-                          setSelected([]);
-                        }}
-                      >
-                        Change tag
-                      </button>
-                    </div>
-                  )}
                   {transactionList()}
                   <div className="pagination">
                     <span>{transactions.length} records</span>
@@ -3291,6 +3194,7 @@ export default function Home() {
                     the shared workbook. Financial records are fetched directly
                     from Google Sheets.
                   </p>
+                  <ScannerSettings disabled={stale || syncing || saving} />
                   <label>
                     Appearance
                     <select
@@ -3566,6 +3470,36 @@ export default function Home() {
                 <X />
               </button>
             </div>
+            {modal.entity === "transactions" &&
+              !modal.record.id &&
+              !modal.pending && (
+                <div className="transaction-scan-entry">
+                  <div>
+                    <b>Start with a bill or screenshot</b>
+                    <small>
+                      Scan images or PDFs, then review before saving. Canceling
+                      returns to this form.
+                    </small>
+                  </div>
+                  <StatementImport
+                    accounts={visibleAccounts}
+                    tags={data.tags}
+                    rows={data.transactions}
+                    disabled={stale || syncing || saving}
+                    triggerLabel="Upload bill or image"
+                    initialMode="scan"
+                    onSync={async () => {
+                      await refreshSheet();
+                    }}
+                    onSave={(record, op) =>
+                      mutate("transactions", "create", record, op)
+                    }
+                    onClose={(imported) => {
+                      if (imported) setModal(null);
+                    }}
+                  />
+                </div>
+              )}
             <form onSubmit={save}>
               <fieldset
                 className="form-grid"

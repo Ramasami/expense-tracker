@@ -95,7 +95,7 @@ Income, paid expenses, investment contributions and savings use the selected rep
 - Expense tags come only from **Expense Tags**. The searchable dropdown opens with all valid choices and filters while typing. Historical unlisted tags remain readable but cannot be chosen for new entries.
 - The amount field accepts arithmetic such as `123+345+13*2`, with validated numerical expressions and rupee precision.
 - Search includes merchant, notes, tags, owner, card, payment and account names. Sorting covers newest/oldest, largest/smallest amount and merchant name. The collapsed Filters panel includes tag, type, account, payment method, receipt presence and amount bounds. Reporting dates and owner/account scope are available above.
-- Compact rows show relevant details across several lines. Edit, selection, bulk actions, transaction details, receipts, exports and **Recently deleted** are available without horizontal table scrolling.
+- Compact rows show relevant details across several lines. Edit, delete, transaction details, receipts, exports and **Recently deleted** are available without horizontal table scrolling.
 - Deletions are soft and audited. Linked paid charges cannot have financial details changed until the associated payment is deleted. Linked card/loan payments are corrected by deleting and recording the replacement.
 
 ### Credit Card Bills
@@ -204,16 +204,19 @@ The authenticated Apps Script service sends only the selected documents and acti
 
 Review warnings, dates, amounts, currency, accounts and tags. Uncertain, duplicate or incomplete entries are skipped by default. Foreign/unknown currency requires manual review and an INR amount; there is no invented exchange rate. Recognized card/loan payments needing links are flagged for the dedicated payment flow. Running balances, totals and loan-principal summaries are not intended as expense transactions.
 
+You can also start scanning from **Add transaction → Upload bill or image**. Canceling the scanner returns to your untouched manual draft; after confirmed imports, closing it dismisses the original add form.
+
 The final **“I reviewed the selected entries…”** confirmation is required before import. Editing a proposal clears that confirmation. Even then, only pressing the import button writes selected records through the existing Sheet validation/audit flow. Scanned originals are **not automatically attached as Drive receipts**; attach them separately if you want to keep them with a transaction.
 
-### Configure the OpenAI key later
+### Configure the scanner API key
 
 The scanner is intentionally unavailable until a server key is configured. Other features work normally without it.
 
-1. Open the existing [Apps Script project](https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit) as its owner.
-2. This is a **one-time setup**: the key stays in server-side Script properties across refreshes, sign-outs, devices and deployments until removed or replaced. The scanner checks the server and displays **Configured** instead of setup instructions once saved. In **Project Settings → Script properties**, add `OPENAI_API_KEY` with an API key for a funded/authorized OpenAI API project. Never paste it in the app, a frontend environment variable, a source file or Git.
-3. Optionally set `OPENAI_MODEL`; the default is `gpt-4.1-mini`. Select a model supporting image/PDF inputs, Responses and strict JSON-schema outputs.
-4. Ensure the Apps Script deployment includes the current source, then use the scanner. No new Google OAuth scope is needed beyond the existing external-request permission.
+1. Recommended: sign in as the service owner (Ram), open **Settings → AI bill & statement scanner**, paste a key into the **OpenAI API key** password field, then choose **Save API key securely**. Create a **Restricted project API key** with **Responses → Write** enabled; Read-only cannot scan. Other endpoints can stay disabled (including Files, because documents are sent inline). Your OpenAI project also needs API billing and access to the configured model. The app clears the field after submitting; it never writes the key to browser storage, Sheet data, logs or backups. Only the service owner can save/replace the shared key; other authorized owners can scan. Saving confirms storage, and the first scan checks provider permissions/billing.
+2. Alternatively, open the existing [Apps Script project](https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit) as its owner.
+3. This is a **one-time setup**: the key stays in server-side Script properties across refreshes, sign-outs, devices and deployments until removed or replaced. The scanner checks the server and displays **Configured** instead of setup instructions once saved. In **Project Settings → Script properties**, add `OPENAI_API_KEY` with an API key for a funded/authorized OpenAI API project. Use only the authenticated Settings password field when configuring through the app; never put it in a frontend environment variable, source file or Git.
+4. Optionally set `OPENAI_MODEL`; the default is `gpt-4.1-mini`. Select a model supporting image/PDF inputs, Responses and strict JSON-schema outputs.
+5. Ensure the Apps Script deployment includes the current source, then use the scanner. No new Google OAuth scope is needed beyond the existing external-request permission.
 
 No API key is sent back to the browser. API usage/billing and OpenAI’s applicable data policies still apply. The request uses `store:false`; this is not a promise of zero retention. There is no automatic retry that might unexpectedly repeat a billable analysis. Live model quality/availability requires your configured key; automated tests mock the provider and do not incur charges.
 

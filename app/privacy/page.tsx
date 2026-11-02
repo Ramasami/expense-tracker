@@ -43,6 +43,13 @@ export default function PrivacyPage() {
       </p>
       <h2>Optional AI document scanning</h2>
       <p>
+        The service owner can save an OpenAI API key through the Settings
+        password field. It is sent over HTTPS to the authenticated Apps Script
+        service and stored only in server-side Script properties. The key is
+        never returned to the browser or included in financial records, offline
+        caches or backups.
+      </p>
+      <p>
         When you choose Analyze with OpenAI, the selected bills, images or PDFs
         and the active tag names are sent through the authenticated Google
         service to OpenAI for extraction. Your Google token, owner email and the

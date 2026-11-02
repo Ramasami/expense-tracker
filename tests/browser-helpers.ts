@@ -87,5 +87,22 @@ export async function mockGoogle(page: Page) {
       body: await response.text(),
     });
   });
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    if (route.request().postDataJSON().action === "scannerStatus")
+      return route.fulfill({
+        json: {
+          ok: true,
+          result: {
+            configured: false,
+            canConfigure: state.email === "ramasami.official@gmail.com",
+            model: "gpt-4.1-mini",
+          },
+        },
+      });
+    return route.fulfill({
+      status: 503,
+      json: { ok: false, error: "No service mock installed for this action." },
+    });
+  });
   return { f, state };
 }

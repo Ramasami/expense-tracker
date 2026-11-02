@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { RecordData, money } from "../lib/finance";
 import {
   parseCSV,
@@ -32,6 +33,9 @@ export default function StatementImport({
   disabled,
   onSave,
   onSync,
+  triggerLabel = "Import statement",
+  initialMode = "csv",
+  onClose,
 }: {
   accounts: RecordData[];
   tags: RecordData[];
@@ -39,6 +43,9 @@ export default function StatementImport({
   disabled: boolean;
   onSave: (r: any, op: string) => Promise<boolean>;
   onSync: () => Promise<void>;
+  triggerLabel?: string;
+  initialMode?: "csv" | "scan";
+  onClose?: (imported: boolean) => void;
 }) {
   const [open, setOpen] = useState(false),
     [csv, setCsv] = useState<string[][]>([]),
@@ -51,7 +58,7 @@ export default function StatementImport({
     [settlement, setSettlement] = useState("Unknown"),
     [preview, setPreview] = useState<Preview[]>([]),
     [previewPage, setPreviewPage] = useState(0),
-    [mode, setMode] = useState<"csv" | "scan">("csv"),
+    [mode, setMode] = useState<"csv" | "scan">(initialMode),
     [scanFiles, setScanFiles] = useState<File[]>([]),
     [scannerConfigured, setScannerConfigured] = useState<boolean | null>(null),
     [scannerChecking, setScannerChecking] = useState(false),
@@ -431,681 +438,704 @@ export default function StatementImport({
   return (
     <>
       <button disabled={disabled} onClick={() => setOpen(true)}>
-        Import statement
+        {triggerLabel}
       </button>
-      {open && (
-        <div className="modal-overlay">
-          <section
-            className="modal import-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Import statement"
-          >
-            <div className="card-heading">
-              <div>
-                <h2>Import statement</h2>
-                <p>Upload → review → confirm</p>
-              </div>
-              <button
-                aria-label="Close statement import"
-                disabled={busy}
-                onClick={() => setOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="feature-body">
-              <div className="pill-options" aria-label="Statement input mode">
+      {open &&
+        createPortal(
+          <div className="modal-overlay">
+            <section
+              className="modal import-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Import statement"
+            >
+              <div className="card-heading">
+                <div>
+                  <h2>Import statement</h2>
+                  <p>Upload → review → confirm</p>
+                </div>
                 <button
-                  type="button"
-                  aria-pressed={mode === "csv"}
+                  aria-label="Close statement import"
                   disabled={busy}
                   onClick={() => {
-                    setMode("csv");
-                    setPreview([]);
-                    setError("");
+                    setOpen(false);
+                    onClose?.(preview.some((row) => row.done));
                   }}
                 >
-                  CSV statement
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={mode === "scan"}
-                  disabled={busy}
-                  onClick={() => {
-                    setMode("scan");
-                    setPreview([]);
-                    setError("");
-                  }}
-                >
-                  Scan bills & statements
+                  ×
                 </button>
               </div>
-              <fieldset className="form-grid" disabled={busy || disabled}>
-                {mode === "csv" ? (
-                  <>
-                    <label className="field">
-                      Statement CSV
+              <div className="feature-body">
+                <div className="pill-options" aria-label="Statement input mode">
+                  <button
+                    type="button"
+                    aria-pressed={mode === "csv"}
+                    disabled={busy}
+                    onClick={() => {
+                      setMode("csv");
+                      setPreview([]);
+                      setError("");
+                    }}
+                  >
+                    CSV statement
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={mode === "scan"}
+                    disabled={busy}
+                    onClick={() => {
+                      setMode("scan");
+                      setPreview([]);
+                      setError("");
+                    }}
+                  >
+                    Scan bills & statements
+                  </button>
+                </div>
+                <fieldset className="form-grid" disabled={busy || disabled}>
+                  {mode === "csv" ? (
+                    <>
+                      <label className="field">
+                        Statement CSV
+                        <input
+                          aria-label="Statement CSV"
+                          type="file"
+                          accept=".csv,text/csv"
+                          onChange={(e) => void read(e.target.files?.[0])}
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <label className="field scan-upload">
+                      Images or PDFs
                       <input
-                        aria-label="Statement CSV"
+                        aria-label="Scan documents"
                         type="file"
-                        accept=".csv,text/csv"
-                        onChange={(e) => void read(e.target.files?.[0])}
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        onChange={(event) => {
+                          setScanFiles(Array.from(event.target.files || []));
+                          setPreview([]);
+                          setReviewConfirmed(false);
+                          setError("");
+                        }}
                       />
+                      <small>
+                        {scanFiles.length
+                          ? scanFiles.map((file) => file.name).join(" · ")
+                          : "Choose up to 5 bills, receipts or statement screenshots"}
+                      </small>
                     </label>
-                  </>
-                ) : (
-                  <label className="field scan-upload">
-                    Images or PDFs
-                    <input
-                      aria-label="Scan documents"
-                      type="file"
-                      multiple
-                      accept="image/jpeg,image/png,image/webp,application/pdf"
-                      onChange={(event) => {
-                        setScanFiles(Array.from(event.target.files || []));
+                  )}
+                  <label className="field">
+                    Import into account
+                    <select
+                      aria-label="Import into account"
+                      value={target?.id || ""}
+                      onChange={(e) => {
+                        setAccount(e.target.value);
+                        setCard("");
                         setPreview([]);
-                        setReviewConfirmed(false);
-                        setError("");
                       }}
-                    />
-                    <small>
-                      {scanFiles.length
-                        ? scanFiles.map((file) => file.name).join(" · ")
-                        : "Choose up to 5 bills, receipts or statement screenshots"}
-                    </small>
-                  </label>
-                )}
-                <label className="field">
-                  Import into account
-                  <select
-                    aria-label="Import into account"
-                    value={target?.id || ""}
-                    onChange={(e) => {
-                      setAccount(e.target.value);
-                      setCard("");
-                      setPreview([]);
-                    }}
-                  >
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  Statement kind
-                  <select
-                    value={card}
-                    aria-label="Statement kind"
-                    onChange={(e) => {
-                      setCard(e.target.value);
-                      setPreview([]);
-                    }}
-                  >
-                    <option value="">Bank transactions</option>
-                    {(target?.creditCards || []).map((c: any) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  Default expense tag
-                  <select value={tag} onChange={(e) => setTag(e.target.value)}>
-                    <option value="">Choose in preview</option>
-                    {tags
-                      .filter((t) => t.status === "Active")
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
+                    >
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
                         </option>
                       ))}
-                  </select>
-                </label>
-                <label className="field">
-                  Date format
-                  <select
-                    aria-label="Import date format"
-                    value={dateFormat}
-                    onChange={(e) => setDateFormat(e.target.value as any)}
-                  >
-                    <option value="DMY">Day / month / year</option>
-                    <option value="MDY">Month / day / year</option>
-                  </select>
-                </label>
-                {card && (
-                  <label className="field">
-                    Purchase payment status
-                    <select
-                      value={settlement}
-                      onChange={(e) => setSettlement(e.target.value)}
-                    >
-                      <option value="Unknown">
-                        Unknown — review before payment
-                      </option>
-                      <option value="Unpaid">Unpaid / unbilled</option>
                     </select>
                   </label>
-                )}
-              </fieldset>
-              {mode === "csv" && csv.length > 0 && (
-                <details open={!preview.length} className="feature-details">
-                  <summary>Match statement columns</summary>
-                  <fieldset
-                    className="form-grid feature-body"
-                    disabled={busy || disabled}
-                  >
-                    {Object.entries(columnNames).map(([key, label]) => (
-                      <label className="field" key={key}>
-                        {label}
-                        <select
-                          aria-label={`CSV ${label} column`}
-                          value={mapping[key] ?? "-1"}
-                          onChange={(e) =>
-                            setMapping({ ...mapping, [key]: e.target.value })
-                          }
-                        >
-                          <option value="-1">Not used</option>
-                          {csv[0].map((header, i) => (
-                            <option key={i} value={i}>
-                              {header || `Column ${i + 1}`}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
+                  <label className="field">
+                    Statement kind
+                    <select
+                      value={card}
+                      aria-label="Statement kind"
+                      onChange={(e) => {
+                        setCard(e.target.value);
+                        setPreview([]);
+                      }}
+                    >
+                      <option value="">Bank transactions</option>
+                      {(target?.creditCards || []).map((c: any) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    Default expense tag
+                    <select
+                      value={tag}
+                      onChange={(e) => setTag(e.target.value)}
+                    >
+                      <option value="">Choose in preview</option>
+                      {tags
+                        .filter((t) => t.status === "Active")
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    Date format
+                    <select
+                      aria-label="Import date format"
+                      value={dateFormat}
+                      onChange={(e) => setDateFormat(e.target.value as any)}
+                    >
+                      <option value="DMY">Day / month / year</option>
+                      <option value="MDY">Month / day / year</option>
+                    </select>
+                  </label>
+                  {card && (
                     <label className="field">
-                      Signed amount convention
+                      Purchase payment status
                       <select
-                        value={direction}
-                        onChange={(e) => setDirection(e.target.value)}
+                        value={settlement}
+                        onChange={(e) => setSettlement(e.target.value)}
                       >
-                        <option value="expense">
-                          Positive = expense; negative = income
+                        <option value="Unknown">
+                          Unknown — review before payment
                         </option>
-                        <option value="income">
-                          Positive = income; negative = expense
-                        </option>
+                        <option value="Unpaid">Unpaid / unbilled</option>
                       </select>
                     </label>
-                  </fieldset>
-                  <button disabled={busy || disabled} onClick={build}>
-                    Build preview
-                  </button>
-                </details>
-              )}
-              {mode === "scan" && (
-                <div className="scan-intro">
-                  <p>
-                    Analyze selected documents with OpenAI, then review the
-                    proposed transactions. Nothing is written to your Sheet
-                    until you confirm.
-                  </p>
-                  <small>
-                    Documents are sent to OpenAI through the authenticated
-                    Google service. The API key stays on the server. Originals
-                    are not saved as receipts automatically.
-                  </small>
-                  <button
-                    className="primary"
-                    disabled={
-                      busy || disabled || scannerChecking || !scanFiles.length
-                    }
-                    onClick={() => void scan()}
-                  >
-                    {busy && scanStage ? "Analyzing…" : "Analyze with OpenAI"}
-                  </button>
-                  <p role="status">
-                    {scannerChecking
-                      ? "Checking scanner configuration…"
-                      : scannerConfigured === true
-                        ? "Configured · API key saved securely on the server. No further setup needed."
-                        : scannerConfigured === false
-                          ? "Scanner not configured yet."
-                          : scannerCheckError}
-                  </p>
-                  {scannerConfigured !== true && (
-                    <button
-                      className="secondary"
-                      disabled={scannerChecking || busy}
-                      onClick={() => void checkScannerSetup()}
+                  )}
+                </fieldset>
+                {mode === "csv" && csv.length > 0 && (
+                  <details open={!preview.length} className="feature-details">
+                    <summary>Match statement columns</summary>
+                    <fieldset
+                      className="form-grid feature-body"
+                      disabled={busy || disabled}
                     >
-                      Check setup again
+                      {Object.entries(columnNames).map(([key, label]) => (
+                        <label className="field" key={key}>
+                          {label}
+                          <select
+                            aria-label={`CSV ${label} column`}
+                            value={mapping[key] ?? "-1"}
+                            onChange={(e) =>
+                              setMapping({ ...mapping, [key]: e.target.value })
+                            }
+                          >
+                            <option value="-1">Not used</option>
+                            {csv[0].map((header, i) => (
+                              <option key={i} value={i}>
+                                {header || `Column ${i + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                      <label className="field">
+                        Signed amount convention
+                        <select
+                          value={direction}
+                          onChange={(e) => setDirection(e.target.value)}
+                        >
+                          <option value="expense">
+                            Positive = expense; negative = income
+                          </option>
+                          <option value="income">
+                            Positive = income; negative = expense
+                          </option>
+                        </select>
+                      </label>
+                    </fieldset>
+                    <button disabled={busy || disabled} onClick={build}>
+                      Build preview
                     </button>
-                  )}
-                  {scannerConfigured === false && (
-                    <details>
-                      <summary>Scanner setup</summary>
-                      <p>
-                        Add OPENAI_API_KEY in the Apps Script project’s Script
-                        properties once. It remains saved across refreshes,
-                        devices, sign-ins and deployments until you remove or
-                        replace it. API billing is separate from ChatGPT. Never
-                        paste the key into this website or repository.
-                      </p>
-                      <a
-                        href="https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open scanner service setup ↗
-                      </a>
-                    </details>
-                  )}
-                </div>
-              )}
-              {scanWarnings.length > 0 && mode === "scan" && (
-                <details className="scan-warnings" open>
-                  <summary>Review notes ({scanWarnings.length})</summary>
-                  <ul>
-                    {scanWarnings.map((warning, index) => (
-                      <li key={index}>{warning}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {!!preview.length && (
-                <>
-                  <div className="import-summary">
-                    <b>
-                      {selected.length} selected ·{" "}
-                      {money(
-                        selected.reduce(
-                          (s, r) => s + Number(r.record.amount || 0),
-                          0,
-                        ),
-                      )}
-                    </b>
+                  </details>
+                )}
+                {mode === "scan" && (
+                  <div className="scan-intro">
+                    <p>
+                      Analyze selected documents with OpenAI, then review the
+                      proposed transactions. Nothing is written to your Sheet
+                      until you confirm.
+                    </p>
                     <small>
-                      {preview.filter((r) => r.duplicate).length} possible
-                      duplicates skipped by default ·{" "}
-                      {preview.filter((r) => r.done).length} saved
+                      Documents are sent to OpenAI through the authenticated
+                      Google service. The API key stays on the server. Originals
+                      are not saved as receipts automatically.
                     </small>
-                    <label>
-                      <input
-                        type="checkbox"
-                        disabled={busy}
-                        checked={
-                          selected.length > 0 &&
-                          selected.length ===
-                            preview.filter(
-                              (r) =>
-                                !r.done &&
-                                !r.duplicate &&
-                                !r.error &&
-                                !r.record.scanNeedsLink,
-                            ).length
-                        }
-                        onChange={(e) =>
-                          setPreview((items) =>
-                            items.map((r) => ({
-                              ...r,
-                              selected:
-                                e.target.checked &&
-                                !r.done &&
-                                !r.duplicate &&
-                                !r.error,
-                            })),
-                          )
-                        }
-                      />
-                      Select valid, non-duplicate rows
-                    </label>
+                    <button
+                      className="primary"
+                      disabled={
+                        busy || disabled || scannerChecking || !scanFiles.length
+                      }
+                      onClick={() => void scan()}
+                    >
+                      {busy && scanStage ? "Analyzing…" : "Analyze with OpenAI"}
+                    </button>
+                    <p role="status">
+                      {scannerChecking
+                        ? "Checking scanner configuration…"
+                        : scannerConfigured === true
+                          ? "Configured · API key saved securely on the server. No further setup needed."
+                          : scannerConfigured === false
+                            ? "Scanner not configured yet."
+                            : scannerCheckError}
+                    </p>
+                    {scannerConfigured !== true && (
+                      <button
+                        className="secondary"
+                        disabled={scannerChecking || busy}
+                        onClick={() => void checkScannerSetup()}
+                      >
+                        Check setup again
+                      </button>
+                    )}
+                    {scannerConfigured === false && (
+                      <details>
+                        <summary>Scanner setup</summary>
+                        <p>
+                          Add your key once in Settings → AI bill & statement
+                          scanner. It remains saved across refreshes, devices,
+                          sign-ins and deployments until you remove or replace
+                          it. API billing is separate from ChatGPT. Never put
+                          the key in source files or the repository.
+                        </p>
+                        <a
+                          href="https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Apps Script project (advanced) ↗
+                        </a>
+                      </details>
+                    )}
                   </div>
-                  {preview.length > 25 && (
-                    <div className="row-actions">
-                      <button
-                        disabled={busy || previewPage === 0}
-                        onClick={() => setPreviewPage(previewPage - 1)}
-                      >
-                        Previous preview rows
-                      </button>
+                )}
+                {scanWarnings.length > 0 && mode === "scan" && (
+                  <details className="scan-warnings" open>
+                    <summary>Review notes ({scanWarnings.length})</summary>
+                    <ul>
+                      {scanWarnings.map((warning, index) => (
+                        <li key={index}>{warning}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {!!preview.length && (
+                  <>
+                    <div className="import-summary">
+                      <b>
+                        {selected.length} selected ·{" "}
+                        {money(
+                          selected.reduce(
+                            (s, r) => s + Number(r.record.amount || 0),
+                            0,
+                          ),
+                        )}
+                      </b>
                       <small>
-                        {previewPage * 25 + 1}–
-                        {Math.min(preview.length, (previewPage + 1) * 25)} of{" "}
-                        {preview.length}
+                        {preview.filter((r) => r.duplicate).length} possible
+                        duplicates skipped by default ·{" "}
+                        {preview.filter((r) => r.done).length} saved
                       </small>
-                      <button
-                        disabled={
-                          busy || (previewPage + 1) * 25 >= preview.length
-                        }
-                        onClick={() => setPreviewPage(previewPage + 1)}
-                      >
-                        Next preview rows
-                      </button>
+                      <label>
+                        <input
+                          type="checkbox"
+                          disabled={busy}
+                          checked={
+                            selected.length > 0 &&
+                            selected.length ===
+                              preview.filter(
+                                (r) =>
+                                  !r.done &&
+                                  !r.duplicate &&
+                                  !r.error &&
+                                  !r.record.scanNeedsLink,
+                              ).length
+                          }
+                          onChange={(e) =>
+                            setPreview((items) =>
+                              items.map((r) => ({
+                                ...r,
+                                selected:
+                                  e.target.checked &&
+                                  !r.done &&
+                                  !r.duplicate &&
+                                  !r.error,
+                              })),
+                            )
+                          }
+                        />
+                        Select valid, non-duplicate rows
+                      </label>
                     </div>
-                  )}
-                  <div className="import-preview">
-                    {preview
-                      .slice(previewPage * 25, previewPage * 25 + 25)
-                      .map((item, visibleIndex) => {
-                        const i = previewPage * 25 + visibleIndex;
-                        return (
-                          <article className="import-row" key={i}>
-                            <label>
-                              <input
-                                aria-label={`Import row ${i + 1}`}
-                                type="checkbox"
+                    {preview.length > 25 && (
+                      <div className="row-actions">
+                        <button
+                          disabled={busy || previewPage === 0}
+                          onClick={() => setPreviewPage(previewPage - 1)}
+                        >
+                          Previous preview rows
+                        </button>
+                        <small>
+                          {previewPage * 25 + 1}–
+                          {Math.min(preview.length, (previewPage + 1) * 25)} of{" "}
+                          {preview.length}
+                        </small>
+                        <button
+                          disabled={
+                            busy || (previewPage + 1) * 25 >= preview.length
+                          }
+                          onClick={() => setPreviewPage(previewPage + 1)}
+                        >
+                          Next preview rows
+                        </button>
+                      </div>
+                    )}
+                    <div className="import-preview">
+                      {preview
+                        .slice(previewPage * 25, previewPage * 25 + 25)
+                        .map((item, visibleIndex) => {
+                          const i = previewPage * 25 + visibleIndex;
+                          return (
+                            <article className="import-row" key={i}>
+                              <label>
+                                <input
+                                  aria-label={`Import row ${i + 1}`}
+                                  type="checkbox"
+                                  disabled={
+                                    busy ||
+                                    item.done ||
+                                    item.attempted ||
+                                    item.record.scanNeedsLink
+                                  }
+                                  checked={item.selected}
+                                  onChange={(e) =>
+                                    setPreview((items) =>
+                                      items.map((r, j) =>
+                                        j === i
+                                          ? { ...r, selected: e.target.checked }
+                                          : r,
+                                      ),
+                                    )
+                                  }
+                                />
+                                <b>
+                                  Row {i + 1}
+                                  {item.done
+                                    ? " · Saved"
+                                    : item.duplicate
+                                      ? " · Possible duplicate"
+                                      : ""}
+                                </b>
+                              </label>
+                              <fieldset
+                                className="form-grid"
                                 disabled={
                                   busy ||
                                   item.done ||
                                   item.attempted ||
                                   item.record.scanNeedsLink
                                 }
-                                checked={item.selected}
-                                onChange={(e) =>
-                                  setPreview((items) =>
-                                    items.map((r, j) =>
-                                      j === i
-                                        ? { ...r, selected: e.target.checked }
-                                        : r,
-                                    ),
-                                  )
-                                }
-                              />
-                              <b>
-                                Row {i + 1}
-                                {item.done
-                                  ? " · Saved"
-                                  : item.duplicate
-                                    ? " · Possible duplicate"
-                                    : ""}
-                              </b>
-                            </label>
-                            <fieldset
-                              className="form-grid"
-                              disabled={
-                                busy ||
-                                item.done ||
-                                item.attempted ||
-                                item.record.scanNeedsLink
-                              }
-                            >
-                              <input
-                                aria-label={`Row ${i + 1} date`}
-                                type="date"
-                                value={item.record.date || ""}
-                                onChange={(e) =>
-                                  edit(i, "date", e.target.value)
-                                }
-                              />
-                              <input
-                                aria-label={`Row ${i + 1} description`}
-                                value={item.record.description}
-                                onChange={(e) =>
-                                  edit(i, "description", e.target.value)
-                                }
-                              />
-                              <input
-                                aria-label={`Row ${i + 1} amount`}
-                                type="number"
-                                min="0.01"
-                                step="0.01"
-                                value={item.record.amount || ""}
-                                onChange={(e) =>
-                                  edit(i, "amount", e.target.value)
-                                }
-                              />
-                              <select
-                                aria-label={`Row ${i + 1} type`}
-                                value={item.record.type || "Expense"}
-                                onChange={(e) =>
-                                  edit(i, "type", e.target.value)
-                                }
                               >
-                                {item.record.type === "Unknown" && (
-                                  <option value="Unknown">
-                                    Choose transaction type
-                                  </option>
-                                )}
-                                {(card
-                                  ? ["Expense", "Income"]
-                                  : [
-                                      "Expense",
-                                      "Income",
-                                      "Investment",
-                                      "Transfer",
-                                    ]
-                                ).map((t) => (
-                                  <option key={t}>{t}</option>
-                                ))}
-                              </select>
-                              {(mode === "scan" ||
-                                item.record.type === "Transfer") && (
-                                <select
-                                  aria-label={`Row ${i + 1} from account`}
-                                  value={item.record.account}
-                                  onChange={(e) => {
-                                    edit(i, "account", e.target.value);
-                                    if (mode === "scan")
-                                      edit(i, "creditCardId", "");
-                                  }}
-                                >
-                                  {accounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {item.record.type === "Transfer" && (
-                                <select
-                                  aria-label={`Row ${i + 1} to account`}
-                                  value={item.record.toAccount || ""}
+                                <input
+                                  aria-label={`Row ${i + 1} date`}
+                                  type="date"
+                                  value={item.record.date || ""}
                                   onChange={(e) =>
-                                    edit(i, "toAccount", e.target.value)
+                                    edit(i, "date", e.target.value)
+                                  }
+                                />
+                                <input
+                                  aria-label={`Row ${i + 1} description`}
+                                  value={item.record.description}
+                                  onChange={(e) =>
+                                    edit(i, "description", e.target.value)
+                                  }
+                                />
+                                <input
+                                  aria-label={`Row ${i + 1} amount`}
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={item.record.amount || ""}
+                                  onChange={(e) =>
+                                    edit(i, "amount", e.target.value)
+                                  }
+                                />
+                                <select
+                                  aria-label={`Row ${i + 1} type`}
+                                  value={item.record.type || "Expense"}
+                                  onChange={(e) =>
+                                    edit(i, "type", e.target.value)
                                   }
                                 >
-                                  <option value="">
-                                    Choose destination account
-                                  </option>
-                                  {accounts
-                                    .filter((a) => a.id !== item.record.account)
-                                    .map((a) => (
+                                  {item.record.type === "Unknown" && (
+                                    <option value="Unknown">
+                                      Choose transaction type
+                                    </option>
+                                  )}
+                                  {(card
+                                    ? ["Expense", "Income"]
+                                    : [
+                                        "Expense",
+                                        "Income",
+                                        "Investment",
+                                        "Transfer",
+                                      ]
+                                  ).map((t) => (
+                                    <option key={t}>{t}</option>
+                                  ))}
+                                </select>
+                                {(mode === "scan" ||
+                                  item.record.type === "Transfer") && (
+                                  <select
+                                    aria-label={`Row ${i + 1} from account`}
+                                    value={item.record.account}
+                                    onChange={(e) => {
+                                      edit(i, "account", e.target.value);
+                                      if (mode === "scan")
+                                        edit(i, "creditCardId", "");
+                                    }}
+                                  >
+                                    {accounts.map((a) => (
                                       <option key={a.id} value={a.id}>
                                         {a.name}
                                       </option>
                                     ))}
-                                </select>
-                              )}
-                              {mode === "scan" &&
-                                item.record.type === "Expense" && (
+                                  </select>
+                                )}
+                                {item.record.type === "Transfer" && (
                                   <select
-                                    aria-label={`Row ${i + 1} expense timing`}
-                                    value={item.record.expenseMode || "Unknown"}
+                                    aria-label={`Row ${i + 1} to account`}
+                                    value={item.record.toAccount || ""}
                                     onChange={(e) =>
-                                      edit(i, "expenseMode", e.target.value)
+                                      edit(i, "toAccount", e.target.value)
+                                    }
+                                  >
+                                    <option value="">
+                                      Choose destination account
+                                    </option>
+                                    {accounts
+                                      .filter(
+                                        (a) => a.id !== item.record.account,
+                                      )
+                                      .map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {a.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )}
+                                {mode === "scan" &&
+                                  item.record.type === "Expense" && (
+                                    <select
+                                      aria-label={`Row ${i + 1} expense timing`}
+                                      value={
+                                        item.record.expenseMode || "Unknown"
+                                      }
+                                      onChange={(e) =>
+                                        edit(i, "expenseMode", e.target.value)
+                                      }
+                                    >
+                                      <option value="Unknown">
+                                        Confirm debit / credit card
+                                      </option>
+                                      <option value="Debit">
+                                        Debit · immediate expense
+                                      </option>
+                                      <option value="Credit">
+                                        Credit card · deferred expense
+                                      </option>
+                                    </select>
+                                  )}
+                                {mode === "scan" &&
+                                  item.record.scanKind === "refund" && (
+                                    <select
+                                      aria-label={`Row ${i + 1} refund destination`}
+                                      value={
+                                        item.record.cardRefund ? "card" : "bank"
+                                      }
+                                      onChange={(event) => {
+                                        edit(
+                                          i,
+                                          "cardRefund",
+                                          event.target.value === "card",
+                                        );
+                                        if (event.target.value === "bank")
+                                          edit(i, "creditCardId", "");
+                                      }}
+                                    >
+                                      <option value="bank">
+                                        Refund into bank account
+                                      </option>
+                                      <option value="card">
+                                        Refund into credit card
+                                      </option>
+                                    </select>
+                                  )}
+                                {mode === "scan" &&
+                                  (item.record.expenseMode === "Credit" ||
+                                    item.record.cardRefund) && (
+                                    <select
+                                      aria-label={`Row ${i + 1} credit card`}
+                                      value={item.record.creditCardId || ""}
+                                      onChange={(e) =>
+                                        edit(i, "creditCardId", e.target.value)
+                                      }
+                                    >
+                                      <option value="">
+                                        Choose credit card
+                                      </option>
+                                      {(
+                                        accounts.find(
+                                          (a) => a.id === item.record.account,
+                                        )?.creditCards || []
+                                      ).map((c: any) => (
+                                        <option key={c.id} value={c.id}>
+                                          {c.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                {mode === "scan" && (
+                                  <select
+                                    aria-label={`Row ${i + 1} currency`}
+                                    value={item.record.currency || "Unknown"}
+                                    onChange={(event) =>
+                                      edit(i, "currency", event.target.value)
                                     }
                                   >
                                     <option value="Unknown">
-                                      Confirm debit / credit card
+                                      Confirm currency
                                     </option>
-                                    <option value="Debit">
-                                      Debit · immediate expense
-                                    </option>
-                                    <option value="Credit">
-                                      Credit card · deferred expense
+                                    <option value="INR">INR · ₹</option>
+                                    <option value="Other">
+                                      Other · convert manually
                                     </option>
                                   </select>
                                 )}
-                              {mode === "scan" &&
-                                item.record.scanKind === "refund" && (
-                                  <select
-                                    aria-label={`Row ${i + 1} refund destination`}
-                                    value={
-                                      item.record.cardRefund ? "card" : "bank"
-                                    }
-                                    onChange={(event) => {
-                                      edit(
-                                        i,
-                                        "cardRefund",
-                                        event.target.value === "card",
-                                      );
-                                      if (event.target.value === "bank")
-                                        edit(i, "creditCardId", "");
-                                    }}
-                                  >
-                                    <option value="bank">
-                                      Refund into bank account
-                                    </option>
-                                    <option value="card">
-                                      Refund into credit card
-                                    </option>
-                                  </select>
-                                )}
-                              {mode === "scan" &&
-                                (item.record.expenseMode === "Credit" ||
-                                  item.record.cardRefund) && (
-                                  <select
-                                    aria-label={`Row ${i + 1} credit card`}
-                                    value={item.record.creditCardId || ""}
-                                    onChange={(e) =>
-                                      edit(i, "creditCardId", e.target.value)
-                                    }
-                                  >
-                                    <option value="">Choose credit card</option>
-                                    {(
-                                      accounts.find(
-                                        (a) => a.id === item.record.account,
-                                      )?.creditCards || []
-                                    ).map((c: any) => (
-                                      <option key={c.id} value={c.id}>
-                                        {c.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                              {mode === "scan" && (
                                 <select
-                                  aria-label={`Row ${i + 1} currency`}
-                                  value={item.record.currency || "Unknown"}
-                                  onChange={(event) =>
-                                    edit(i, "currency", event.target.value)
+                                  aria-label={`Row ${i + 1} tag`}
+                                  value={item.record.tagId}
+                                  onChange={(e) =>
+                                    edit(i, "tagId", e.target.value)
                                   }
                                 >
-                                  <option value="Unknown">
-                                    Confirm currency
-                                  </option>
-                                  <option value="INR">INR · ₹</option>
-                                  <option value="Other">
-                                    Other · convert manually
-                                  </option>
+                                  <option value="">Choose expense tag</option>
+                                  {tags
+                                    .filter((t) => t.status === "Active")
+                                    .map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name}
+                                      </option>
+                                    ))}
                                 </select>
-                              )}
-                              <select
-                                aria-label={`Row ${i + 1} tag`}
-                                value={item.record.tagId}
-                                onChange={(e) =>
-                                  edit(i, "tagId", e.target.value)
-                                }
-                              >
-                                <option value="">Choose expense tag</option>
-                                {tags
-                                  .filter((t) => t.status === "Active")
-                                  .map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name}
-                                    </option>
-                                  ))}
-                              </select>
-                            </fieldset>
-                            {mode === "scan" && (
-                              <small>
-                                AI confidence estimate: {item.record.confidence}
-                                . Verify against the original document.
-                              </small>
-                            )}
-                            {mode === "scan" &&
-                              (item.record.scanAccountHint ||
-                                item.record.scanCardHint) && (
+                              </fieldset>
+                              {mode === "scan" && (
                                 <small>
-                                  Detected in document:{" "}
-                                  {[
-                                    item.record.scanAccountHint,
-                                    item.record.scanCardHint,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                  . Confirm the account/card choices above.
+                                  AI confidence estimate:{" "}
+                                  {item.record.confidence}. Verify against the
+                                  original document.
                                 </small>
                               )}
-                            {item.error && (
-                              <small>
-                                Source row needs review: {item.error}
-                              </small>
-                            )}
-                          </article>
-                        );
-                      })}
+                              {mode === "scan" &&
+                                (item.record.scanAccountHint ||
+                                  item.record.scanCardHint) && (
+                                  <small>
+                                    Detected in document:{" "}
+                                    {[
+                                      item.record.scanAccountHint,
+                                      item.record.scanCardHint,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                    . Confirm the account/card choices above.
+                                  </small>
+                                )}
+                              {item.error && (
+                                <small>
+                                  Source row needs review: {item.error}
+                                </small>
+                              )}
+                            </article>
+                          );
+                        })}
+                    </div>
+                  </>
+                )}
+                {error && (
+                  <div>
+                    <p role="alert">{error}</p>
+                    <button disabled={busy} onClick={() => void onSync()}>
+                      Sync with Google Sheets
+                    </button>
                   </div>
-                </>
-              )}
-              {error && (
-                <div>
-                  <p role="alert">{error}</p>
-                  <button disabled={busy} onClick={() => void onSync()}>
-                    Sync with Google Sheets
-                  </button>
-                </div>
-              )}
-              {busy && (
-                <div role="status">
-                  <progress
-                    value={progress}
-                    max={selected.length + progress || 1}
-                  />
-                  Saved {progress} rows. Keep this window open.
-                </div>
-              )}
-            </div>
-            {mode === "scan" && preview.length > 0 && (
-              <label className="scan-confirm">
-                <input
-                  type="checkbox"
-                  checked={reviewConfirmed}
-                  disabled={busy || disabled}
-                  onChange={(event) => setReviewConfirmed(event.target.checked)}
-                />
-                I reviewed the selected entries and confirm these changes to
-                Google Sheets.
-              </label>
-            )}
-            {busy && scanStage && (
-              <div role="status" className="scan-progress">
-                <progress />
-                {scanStage}
+                )}
+                {busy && (
+                  <div role="status">
+                    <progress
+                      value={progress}
+                      max={selected.length + progress || 1}
+                    />
+                    Saved {progress} rows. Keep this window open.
+                  </div>
+                )}
               </div>
-            )}
-            <div className="form-footer">
-              <button disabled={busy} onClick={() => setOpen(false)}>
-                Close
-              </button>
-              <button
-                className="primary"
-                disabled={
-                  disabled ||
-                  busy ||
-                  !selected.length ||
-                  (mode === "scan" && !reviewConfirmed)
-                }
-                onClick={() => void commit()}
-              >
-                {busy
-                  ? "Importing…"
-                  : `Import ${selected.length} selected transactions`}
-              </button>
-            </div>
-            <p className="credit-help">
-              CSV only, up to 500 rows. Review duplicates, tags and transfers
-              before importing. Use the card-bill and loan-payment screens for
-              payments that need charge or principal/interest links.
-            </p>
-          </section>
-        </div>
-      )}
+              {mode === "scan" && preview.length > 0 && (
+                <label className="scan-confirm">
+                  <input
+                    type="checkbox"
+                    checked={reviewConfirmed}
+                    disabled={busy || disabled}
+                    onChange={(event) =>
+                      setReviewConfirmed(event.target.checked)
+                    }
+                  />
+                  I reviewed the selected entries and confirm these changes to
+                  Google Sheets.
+                </label>
+              )}
+              {busy && scanStage && (
+                <div role="status" className="scan-progress">
+                  <progress />
+                  {scanStage}
+                </div>
+              )}
+              <div className="form-footer">
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setOpen(false);
+                    onClose?.(preview.some((row) => row.done));
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  className="primary"
+                  disabled={
+                    disabled ||
+                    busy ||
+                    !selected.length ||
+                    (mode === "scan" && !reviewConfirmed)
+                  }
+                  onClick={() => void commit()}
+                >
+                  {busy
+                    ? "Importing…"
+                    : `Import ${selected.length} selected transactions`}
+                </button>
+              </div>
+              <p className="credit-help">
+                CSV only, up to 500 rows. Review duplicates, tags and transfers
+                before importing. Use the card-bill and loan-payment screens for
+                payments that need charge or principal/interest links.
+              </p>
+            </section>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

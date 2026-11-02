@@ -23,12 +23,15 @@ function doPost(e) {
             !!PropertiesService.getScriptProperties().getProperty(
               "OPENAI_API_KEY",
             ),
+          canConfigure: actor === PEOPLE[0],
           model:
             PropertiesService.getScriptProperties().getProperty(
               "OPENAI_MODEL",
             ) || "gpt-4.1-mini",
         },
       });
+    if (req.action === "configureScanner")
+      return json_({ ok: true, result: configureScanner_(req, actor) });
     if (req.action === "analyzeDocuments")
       return json_({ ok: true, result: analyzeDocuments_(req, actor) });
     const lock = LockService.getScriptLock();
@@ -490,4 +493,28 @@ function analyzeDocuments_(req, actor) {
   )
     throw Error("Invalid or oversized scanner response. Try fewer pages.");
   return result;
+}
+
+// Secret configuration is restricted to the service owner, even when other
+// active owners have permission to scan documents.
+function configureScanner_(req, actor) {
+  if (actor !== PEOPLE[0])
+    throw Error("Only the service owner can configure the shared scanner key.");
+  const key = typeof req.apiKey === "string" ? req.apiKey.trim() : "";
+  if (!/^sk-[A-Za-z0-9_-]{16,300}$/.test(key))
+    throw Error("Enter a valid OpenAI project API key beginning with sk-.");
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000))
+    throw Error("Scanner settings are busy. Retry shortly.");
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty("OPENAI_API_KEY", key);
+    return {
+      configured: true,
+      canConfigure: true,
+      model: props.getProperty("OPENAI_MODEL") || "gpt-4.1-mini",
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
