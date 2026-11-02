@@ -17,6 +17,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run docs:check
       - run: npm test
       - name: Determine release version
         run: echo "BUDGET_APP_VERSION=$(node scripts/release-version.mjs)" >> "$GITHUB_ENV"

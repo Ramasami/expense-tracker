@@ -272,3 +272,17 @@ The main screens are checked at desktop and phone widths with no horizontal page
 
 
 The import dialog has **Upload CSV** and **Upload using AI** tabs. **Download sample CSV** provides example DMY dates and Debit/Credit columns; it does not import or change anything automatically. Select the destination account, build a preview and choose valid tags before confirming any rows.
+
+
+## AI maintainer documentation and automatic updates
+
+- [skills.MD](skills.MD): repository playbook and task-to-module map for AI assistants.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): runtime, finance rules, authorization, data flow, imports, receipts, deletion, releases and testing boundaries.
+- [docs/AI_CONTEXT.generated.md](docs/AI_CONTEXT.generated.md): deterministic source fingerprint, screen list, commands, module/export map and test inventory. Never hand-edit it.
+- [AGENTS.md](AGENTS.md): repository instructions require behavioral documentation to be updated with relevant changes.
+
+`npm run dev` automatically watches relevant source/config/documentation files and refreshes the generated context after edits. `npm run build` refreshes it first. `npm run docs:sync` refreshes it manually, `npm run docs:watch` starts just the watcher, and `npm run docs:check` verifies it without changing files.
+
+`npm install`/`npm ci` installs the local pre-commit hook via the prepare script (skipped in CI). The hook regenerates context from the **staged tree** and stages only that generated file, preserving unrelated unstaged work. A user's different existing Git hook configuration is respected; use `npm run hooks:install` to check installation. Both Pages and release CI workflows fail on stale context, so changes made without local hooks must include a `docs:sync` refresh.
+
+The automatic document is a current source inventory, not an AI-written behavioral changelog. README and architecture explanations still need intentional updates when rules change; AGENTS and skills.MD explicitly require that. No OpenAI calls, API keys or real financial data are used for documentation generation.

@@ -3,13 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
+    "dev": "node scripts/dev.mjs",
     "build": "next build && node scripts/generate-sw.mjs",
     "start": "python3 scripts/preview.py",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "test:browser": "playwright test",
-    "format": "prettier --write app lib tests"
+    "format": "prettier --write app lib tests",
+    "prebuild": "node scripts/update-ai-docs.mjs",
+    "prepare": "node scripts/install-hooks.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "docs:sync": "node scripts/update-ai-docs.mjs",
+    "docs:check": "node scripts/update-ai-docs.mjs --check",
+    "docs:watch": "node scripts/update-ai-docs.mjs --watch"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
