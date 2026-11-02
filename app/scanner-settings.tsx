@@ -73,8 +73,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
           ))}
         </select>
         <small>
-          Shared for all owners. Each provider keeps its own saved key; uploads
-          never switch providers automatically.
+          Applies to all owners. Saved keys are kept when switching.
         </small>
       </label>
       {provider === "gemini" && (
@@ -94,7 +93,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
           (busy
             ? "Checking scanner settings…"
             : status?.configured
-              ? "Configured · key saved securely in Apps Script."
+              ? "Configured · API key saved."
               : status
                 ? `Add your ${spec.name} API key once to enable scanning.`
                 : "Scanner configuration unavailable.")}
@@ -112,7 +111,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
               const result = await testScannerKey(status.provider);
               if (!result.ok) throw Error("The key test did not succeed.");
               setMessage(
-                `Connection successful · saved key works with ${result.model}. Tested ${new Date(result.testedAt).toLocaleTimeString()}.`,
+                `Connection successful · tested ${new Date(result.testedAt).toLocaleTimeString()}.`,
               );
             } catch (error) {
               setMessage("");
@@ -124,11 +123,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
         >
           {testing ? "Testing…" : "Test saved API key"}
         </button>
-        <small>
-          Sends one small AI request (API charges or free quota apply) using the
-          saved key. No files or financial data are sent. Tests are limited to
-          once per minute.
-        </small>
+        <small>Checks connection only. API charges may apply.</small>
       </div>
       {status?.canConfigure && (
         <div className="scanner-key-editor">
@@ -154,7 +149,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
               try {
                 setStatus(await saveScannerKey(key, status.provider));
                 setMessage(
-                  "API key saved securely. Setup is complete; the key will not be requested again.",
+                  "API key saved securely. No need to enter it again.",
                 );
               } catch {
                 setError(
@@ -197,25 +192,11 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
               {busy ? "Saving…" : "Save API key securely"}
             </button>
           </form>
-          <small>
-            Sent once over HTTPS to your authenticated Apps Script service.
-            Never stored in browser storage, the Sheet or backups, and never
-            returned to the app. Saving stores the key; permissions and billing
-            are checked when you scan or test the saved key. API billing is
-            separate from ChatGPT and Gemini subscriptions.
-          </small>
+          <small>Your key stays saved across devices.</small>
         </div>
       )}
-      <small>
-        Local Ollama needs a separately running model server and a secure
-        connection from each device. Native Apple Intelligence requires an Apple
-        app integration. Neither is available in this browser app.
-      </small>
       {status && !status.canConfigure && (
-        <small>
-          Only the service owner can configure the shared scanner key.
-          Authorized owners can use the scanner once configured.
-        </small>
+        <small>Only the service owner can change AI settings.</small>
       )}
       {error && <p role="alert">{error}</p>}
       {(!status || error) && (

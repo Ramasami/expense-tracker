@@ -3246,11 +3246,6 @@ export default function Home() {
                       </a>
                     )}
                   </div>
-                  <p>
-                    Your approved Google account is required to view and update
-                    the shared workbook. Financial records are fetched directly
-                    from Google Sheets.
-                  </p>
                   <ScannerSettings disabled={stale || syncing || saving} />
                   <h3>Display & defaults</h3>
                   <label>
@@ -3297,13 +3292,7 @@ export default function Home() {
                       ))}
                     </select>
                   </label>
-                  <p>
-                    Currency: INR · Indian number formatting
-                    <br />
-                    Storage: Google Sheets with a read-only offline cache
-                    <br />
-                    Audit actor: {googleSession.email}
-                  </p>
+                  <p>Currency: INR</p>
                   <button
                     className="primary"
                     disabled={setup || syncing}
