@@ -187,6 +187,30 @@ export default function CreditBills({
             {options(destinations)}
           </select>
         </label>
+        {(
+          accounts.find((account) => account.id === destination)?.creditCards ||
+          []
+        )
+          .filter(
+            (card: any) =>
+              card.statementSnapshot && (!cardId || cardId === card.id),
+          )
+          .map((card: any) => (
+            <div className="statement-snapshot" key={card.id}>
+              <b>{card.name}</b>
+              <strong>{money(card.statementSnapshot.reportedBalance)}</strong>
+              <small>
+                Reported outstanding · {card.statementSnapshot.reportedOn}.
+                Transaction pages through{" "}
+                {card.statementSnapshot.coverageThrough}.
+              </small>
+              <p>
+                Partial statement: historical purchase settlement is unknown.
+                These purchases are excluded from the selectable unpaid list; no
+                missing transactions were invented.
+              </p>
+            </div>
+          ))}
         {!paying && (
           <label className="field">
             Credit card

@@ -61,6 +61,7 @@ test("loan opening totals and repayments reduce principal; only interest counts 
   const request = op("transactions", repayment(loan.record.id));
   const paid = applyOperation(state, request);
   assert.deepEqual(loanSummary(loan.record, paid.state.data.transactions), {
+    feesPaid: 0,
     principalPaid: 3000,
     interestPaid: 600,
     remainingPrincipal: 7000,

@@ -144,6 +144,13 @@ export function snapshotFromCsv(ledgerText: string, tagText: string): Snapshot {
             `Expense Ledger row ${i + 2} has invalid transaction details.`,
           );
         return {
+          statementImport: details.statementImport === true,
+          sourceStatementId: details.sourceStatementId || "",
+          settlementStatus: details.settlementStatus || "",
+          cardRefund: details.cardRefund === true,
+          statementCardPayment: details.statementCardPayment === true,
+          statementCardAccountId: details.statementCardAccountId || "",
+          allocationInferred: details.allocationInferred === true,
           expenseMode: details.expenseMode || "Debit",
           loanPayment: details.loanPayment === true,
           loanId: details.loanId || "",

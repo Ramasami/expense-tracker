@@ -194,3 +194,46 @@ test("paid card history keeps supporting receipts after card configuration is re
   assert.equal(updated.result.record.creditCardName, "Visa");
   assert.equal(updated.result.record.receipts.length, 1);
 });
+
+test("partial statement history does not invent unpaid status or turn card refunds into bank income", () => {
+  const rows = [
+    {
+      id: "old-charge",
+      type: "Expense",
+      expenseMode: "Credit",
+      settlementStatus: "Unknown",
+      amount: 500,
+      account: "bank",
+      version: 1,
+      status: "Active",
+    },
+    {
+      id: "refund",
+      type: "Income",
+      cardRefund: true,
+      amount: 100,
+      account: "bank",
+      version: 1,
+      status: "Active",
+    },
+    {
+      id: "bill",
+      type: "Expense",
+      statementCardPayment: true,
+      amount: 250,
+      account: "bank",
+      version: 1,
+      status: "Active",
+    },
+  ];
+  assert.equal(unpaidCredit(rows).length, 0);
+  assert.equal(totals(rows).income, 0);
+  assert.equal(totals(rows).expense, 250);
+  assert.equal(
+    balance(
+      { id: "bank", version: 1, status: "Active", openingBalance: 1000 },
+      rows,
+    ),
+    750,
+  );
+});

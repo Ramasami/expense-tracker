@@ -21,11 +21,13 @@ export function loanSummary(
   const interestPaid =
     cents(loan.openingInterestPaid) +
     payments.reduce((sum, row) => sum + cents(row.interestPaid), 0);
+  const feesPaid = Number(loan.openingFeesPaid || 0);
   return {
+    feesPaid,
     principalPaid: principalPaid / 100,
     interestPaid: interestPaid / 100,
     remainingPrincipal: (cents(loan.principal) - principalPaid) / 100,
-    totalPaid: (principalPaid + interestPaid) / 100,
+    totalPaid: (principalPaid + interestPaid) / 100 + feesPaid,
   };
 }
 export function validateLoan(loan: RecordData, rows: RecordData[]) {

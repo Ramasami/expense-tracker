@@ -5,6 +5,7 @@ import LoanTracker from "./loan-tracker";
 import { isLoanPayment } from "../lib/loans";
 import CreditCardEditor from "./credit-card-editor";
 import {
+  reportedCardTotal,
   isCredit,
   isCreditPayment,
   creditTotal,
@@ -635,7 +636,7 @@ export default function Home() {
       m[key] ||= { name: key, Income: 0, Expense: 0, Investment: 0 };
       if (isLoanPayment(r)) m[key].Expense += Number(r.interestPaid || 0);
       else if (isCreditPayment(r)) m[key].Expense += Number(r.amount);
-      else if (!isCredit(r) && r.type in m[key])
+      else if (!isCredit(r) && !r.cardRefund && r.type in m[key])
         m[key][r.type] += Number(r.amount);
     });
     return Object.values(m)
@@ -1239,6 +1240,11 @@ export default function Home() {
                 </div>
                 <div className="transaction-meta">
                   <span className="chip">{r.tag || "Uncategorized"}</span>
+                  {r.cardRefund && (
+                    <span className="chip">
+                      Card refund · no bank cash movement
+                    </span>
+                  )}
                   {isLoanPayment(r) && (
                     <span className="chip">
                       Loan repayment · principal {money(r.principalPaid)} +
@@ -1255,7 +1261,9 @@ export default function Home() {
                         : isCredit(r)
                           ? paymentFor(r.id, data.transactions)
                             ? "Credit Card · Paid"
-                            : "Credit Card · Unpaid"
+                            : r.settlementStatus === "Unknown"
+                              ? "Credit Card · statement history"
+                              : "Credit Card · Unpaid"
                           : "Debit"}
                     </span>
                   )}
@@ -1967,6 +1975,19 @@ export default function Home() {
                       "var(--text)",
                     )}
                   </div>
+                  {reportedCardTotal(visibleAccounts) > 0 && (
+                    <div className="card credit-outstanding">
+                      <span>
+                        Reported card outstanding · partial statement snapshots
+                      </span>
+                      <strong>
+                        {money(reportedCardTotal(visibleAccounts))}
+                      </strong>
+                      <button onClick={() => navigate("Credit Card Bills")}>
+                        View all cards →
+                      </button>
+                    </div>
+                  )}
                   <button
                     className="card credit-outstanding"
                     onClick={() => navigate("Credit Card Bills")}

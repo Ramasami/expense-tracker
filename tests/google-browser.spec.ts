@@ -1512,3 +1512,48 @@ test("loan tracker saves opening paid amounts, splits repayments, reduces princi
     fullPage: true,
   });
 });
+
+test("partial card snapshots remain separate from unknown historical settlements", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const account = JSON.parse(f.grids.Accounts[1][7]);
+  account.creditCards = [
+    {
+      id: "card",
+      name: "Sample card",
+      statementSnapshot: {
+        reportedBalance: 1234.56,
+        reportedOn: "2026-11-02",
+        coverageThrough: "2026-10-16",
+        partial: true,
+      },
+    },
+  ];
+  f.grids.Accounts[1][7] = JSON.stringify(account);
+  f.grids["Expense Ledger"][1][23] = JSON.stringify({
+    expenseMode: "Credit",
+    creditCardId: "card",
+    creditCardName: "Sample card",
+    settlementStatus: "Unknown",
+    statementImport: true,
+  });
+  await login(page);
+  await expect(
+    page
+      .locator(".credit-outstanding")
+      .filter({ hasText: "Reported card outstanding" }),
+  ).toContainText("₹1,234.56");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Credit Card Bills", exact: true })
+    .click();
+  await expect(page.locator(".statement-snapshot")).toContainText("₹1,234.56");
+  await expect(page.locator(".statement-snapshot")).toContainText(
+    "settlement is unknown",
+  );
+  await expect(page.locator(".credit-charge")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /Pay selected/ }),
+  ).toBeDisabled();
+});

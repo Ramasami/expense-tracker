@@ -115,7 +115,7 @@ function validateExpenseTiming(r: RecordData, data: Snapshot) {
       r.creditCardName =
         card?.name || r.creditCardName || "Removed credit card";
       r.payment = "Credit Card";
-    } else {
+    } else if (!r.statementCardPayment) {
       r.creditCardId = "";
       r.creditCardName = "";
     }
@@ -235,6 +235,7 @@ function validate(
       throw Error("Pay outstanding credit charges before removing their card.");
     if (!legacy)
       r.creditCards = cards.map((card: any) => ({
+        ...card,
         id: card.id,
         name: card.name.trim(),
       }));

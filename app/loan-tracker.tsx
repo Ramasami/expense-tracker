@@ -167,7 +167,19 @@ export default function LoanTracker({
                 }{" "}
                 · {Number(loan.interestRate)}% annual interest
               </p>
-              <span className="stat-label">Remaining principal</span>
+              {loan.allocationInferred && (
+                <p className="statement-note">
+                  Payment allocation inferred using interest-first repayment.
+                  Interest-paid totals cover the supplied history only (from
+                  November 2025); earlier interest is unknown. The earliest
+                  split and switch-fee allocation are assumptions; original
+                  lender entries are retained below.
+                </p>
+              )}
+              <span className="stat-label">
+                Remaining principal
+                {loan.allocationInferred ? " (inferred)" : ""}
+              </span>
               <strong className="entity-amount">
                 {money(summary.remainingPrincipal)}
               </strong>
@@ -181,7 +193,10 @@ export default function LoanTracker({
                   <dd>{money(summary.principalPaid)}</dd>
                 </div>
                 <div>
-                  <dt>Interest already paid</dt>
+                  <dt>
+                    Interest already paid
+                    {loan.allocationInferred ? " (inferred, shown period)" : ""}
+                  </dt>
                   <dd>{money(summary.interestPaid)}</dd>
                 </div>
                 <div>
@@ -189,6 +204,47 @@ export default function LoanTracker({
                   <dd>{money(summary.totalPaid)}</dd>
                 </div>
               </dl>
+              {loan.statementSnapshot && (
+                <div className="statement-snapshot">
+                  <b>Lender reported outstanding</b>
+                  <strong>{money(loan.statementSnapshot.outstanding)}</strong>
+                  <small>
+                    As of {loan.statementSnapshot.asOf}; includes{" "}
+                    {money(loan.statementSnapshot.accruedInterest)} interest
+                    charged after the last payment.
+                  </small>
+                  <p>
+                    Sanctioned {money(loan.sanctionedAmount)} · Disbursed{" "}
+                    {money(loan.principal)} · To be disbursed{" "}
+                    {money(loan.undisbursedAmount)}
+                    <br />
+                    Scheduled EMI {money(loan.scheduledEmi)} on day{" "}
+                    {loan.emiDay} · Remaining tenure{" "}
+                    {loan.remainingTenureMonths} months
+                    <br />
+                    Fees paid {money(summary.feesPaid)}
+                  </p>
+                  <details>
+                    <summary>Original lender history</summary>
+                    <div className="loan-history">
+                      {(loan.statementHistory || []).map(
+                        (event: any, index: number) => (
+                          <p key={index}>
+                            {event.date} ·{" "}
+                            {event.kind === "repayment"
+                              ? "Payment"
+                              : event.kind === "interestCharged"
+                                ? "Interest charged"
+                                : "Fee charged"}{" "}
+                            {money(event.amount)} · Balance{" "}
+                            {money(event.balanceAfter)}
+                          </p>
+                        ),
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )}
               <div className="row-actions">
                 <button disabled={disabled} onClick={() => openLoan(loan)}>
                   Edit loan

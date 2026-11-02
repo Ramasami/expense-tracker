@@ -33,7 +33,8 @@ export const money = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(n || 0);
 export function totals(rows: RecordData[]) {
   let income = 0,
@@ -41,7 +42,7 @@ export function totals(rows: RecordData[]) {
     investment = 0;
   for (const r of rows.filter((r) => r.status !== "Deleted")) {
     const n = Number(r.amount) || 0;
-    if (r.type === "Income") income += n;
+    if (r.type === "Income" && !r.cardRefund) income += n;
     if (isLoanPayment(r)) expense += Number(r.interestPaid) || 0;
     else if ((r.type === "Expense" && !isCredit(r)) || isCreditPayment(r))
       expense += n;
@@ -69,7 +70,7 @@ export function balance(account: RecordData, rows: RecordData[]) {
       .reduce(
         (sum, r) =>
           sum +
-          (r.account === account.id && !isCredit(r)
+          (r.account === account.id && !isCredit(r) && !r.cardRefund
             ? r.type === "Income"
               ? Number(r.amount)
               : -Number(r.amount)

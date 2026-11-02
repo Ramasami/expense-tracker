@@ -3,7 +3,10 @@ export function isCredit(row: RecordData) {
   return row.type === "Expense" && row.expenseMode === "Credit";
 }
 export function isCreditPayment(row: RecordData) {
-  return row.type === "Transfer" && row.creditPayment === true;
+  return (
+    (row.type === "Transfer" && row.creditPayment === true) ||
+    row.statementCardPayment === true
+  );
 }
 export function paymentFor(
   id: string,
@@ -31,6 +34,7 @@ export function unpaidCredit(rows: RecordData[], account?: string) {
     (row) =>
       row.status === "Active" &&
       isCredit(row) &&
+      row.settlementStatus !== "Unknown" &&
       (!account || row.account === account) &&
       !paid.has(row.id),
   );
@@ -79,6 +83,13 @@ export function validateCreditPayment(row: RecordData, rows: RecordData[]) {
 }
 export function transactionDetails(row: RecordData) {
   return {
+    statementImport: row.statementImport === true,
+    sourceStatementId: row.sourceStatementId || "",
+    settlementStatus: row.settlementStatus || "",
+    cardRefund: row.cardRefund === true,
+    statementCardPayment: row.statementCardPayment === true,
+    statementCardAccountId: row.statementCardAccountId || "",
+    allocationInferred: row.allocationInferred === true,
     expenseMode:
       row.type === "Expense" && row.expenseMode === "Credit"
         ? "Credit"
@@ -93,4 +104,24 @@ export function transactionDetails(row: RecordData) {
     paidTransactionIds:
       row.creditPayment === true ? row.paidTransactionIds || [] : [],
   };
+}
+
+export function reportedCardTotal(accounts: RecordData[]) {
+  return (
+    accounts
+      .filter((account) => account.status === "Active")
+      .reduce(
+        (sum, account) =>
+          sum +
+          (account.creditCards || []).reduce(
+            (total: number, card: any) =>
+              total +
+              Math.round(
+                Number(card.statementSnapshot?.reportedBalance || 0) * 100,
+              ),
+            0,
+          ),
+        0,
+      ) / 100
+  );
 }
