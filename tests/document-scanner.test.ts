@@ -19,7 +19,11 @@ const proposal = {
   sourceIndex: 0,
   notes: "",
 };
-function scanner(configured = true, status = 200) {
+function scanner(
+  configured = true,
+  status = 200,
+  providerError?: { code?: string; type?: string; message?: string },
+) {
   const props = new Map<string, string>(
     configured ? [["OPENAI_API_KEY", "server-test-key"]] : [],
   );
@@ -43,23 +47,26 @@ function scanner(configured = true, status = 200) {
         calls.push({ url, options });
         return {
           getResponseCode: () => status,
+          getAllHeaders: () => ({ "Retry-After": "45" }),
           getContentText: () =>
-            JSON.stringify({
-              status: "completed",
-              output: [
-                {
-                  content: [
+            providerError
+              ? JSON.stringify({ error: providerError })
+              : JSON.stringify({
+                  status: "completed",
+                  output: [
                     {
-                      type: "output_text",
-                      text: JSON.stringify({
-                        transactions: [proposal],
-                        warnings: [],
-                      }),
+                      content: [
+                        {
+                          type: "output_text",
+                          text: JSON.stringify({
+                            transactions: [proposal],
+                            warnings: [],
+                          }),
+                        },
+                      ],
                     },
                   ],
-                },
-              ],
-            }),
+                }),
         };
       },
     },
@@ -173,4 +180,45 @@ test("scanner key configuration is owner-only, persists securely and never echoe
     /valid OpenAI/,
   );
   assert.equal(props.get("OPENAI_API_KEY"), secret);
+});
+
+test("OpenAI 429 errors distinguish billing/quota from transient rate limits without exposing raw messages", () => {
+  for (const [code, type, expected] of [
+    ["credit_balance_exhausted", "insufficient_quota", /credits are exhausted/],
+    [
+      "project_spend_limit_exceeded",
+      "insufficient_quota",
+      /project spending limit/,
+    ],
+    [
+      "organization_spend_limit_exceeded",
+      "insufficient_quota",
+      /organization spending limit/,
+    ],
+    [
+      "organization_usage_limit_exceeded",
+      "insufficient_quota",
+      /organization usage limit/,
+    ],
+    ["insufficient_quota", "insufficient_quota", /Waiting alone will not fix/],
+    ["rate_limit_exceeded", "rate_limit_error", /at least 45 seconds/],
+    ["slow_down", "rate_limit_error", /temporarily rate-limited/],
+    ["unknown", "unknown", /did not identify which limit/],
+  ] as const) {
+    const { sandbox, calls } = scanner(true, 429, {
+      code,
+      type,
+      message: "private document server-test-key",
+    });
+    assert.throws(
+      () => sandbox.analyzeDocuments_(request, "owner"),
+      (error: any) => {
+        assert.match(error.message, expected);
+        assert.ok(!error.message.includes("private document"));
+        assert.ok(!error.message.includes("server-test-key"));
+        return true;
+      },
+    );
+    assert.equal(calls.length, 1);
+  }
 });

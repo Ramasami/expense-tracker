@@ -457,11 +457,7 @@ function analyzeDocuments_(req, actor) {
     muteHttpExceptions: true,
   });
   if (response.getResponseCode() !== 200)
-    throw Error(
-      "OpenAI scan failed (HTTP " +
-        response.getResponseCode() +
-        "). Check model access, API billing or retry later.",
-    );
+    throw Error(scannerProviderError_(response));
   const data = JSON.parse(response.getContentText());
   if (data.status !== "completed")
     throw Error("Scan was incomplete. Try fewer pages or smaller documents.");
@@ -517,4 +513,70 @@ function configureScanner_(req, actor) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Classify only provider codes. Never forward raw provider messages, documents
+// or credentials, which may be included in an upstream error body.
+function scannerProviderError_(response) {
+  const status = response.getResponseCode();
+  let error = {};
+  try {
+    error = JSON.parse(response.getContentText()).error || {};
+  } catch (_) {}
+  const code = String(error.code || "");
+  const type = String(error.type || "");
+  if (status === 429) {
+    if (code === "credit_balance_exhausted")
+      return "OpenAI API credits are exhausted (HTTP 429). Add API credits in OpenAI Billing, then retry. Your saved key does not need to be entered again.";
+    if (code === "project_spend_limit_exceeded")
+      return "Your OpenAI project spending limit was reached (HTTP 429). Review that project's limits in OpenAI settings before retrying.";
+    if (
+      code === "organization_spend_limit_exceeded" ||
+      code === "billing_hard_limit_reached"
+    )
+      return "Your OpenAI organization spending limit was reached (HTTP 429). Review billing and spending limits before retrying.";
+    if (code === "organization_usage_limit_exceeded")
+      return "Your OpenAI organization usage limit was reached (HTTP 429). Request a higher usage limit in OpenAI settings before retrying.";
+    if (
+      code === "insufficient_quota" ||
+      type === "insufficient_quota" ||
+      code === "usage_limit_exceeded"
+    )
+      return "Your OpenAI API quota or billing allowance is exhausted (HTTP 429). Check API credits and project/organization limits in OpenAI Billing. Waiting alone will not fix this; keep your saved key.";
+    if (
+      code === "rate_limit_exceeded" ||
+      code === "slow_down" ||
+      type === "rate_limit_error"
+    ) {
+      let wait = "Wait before retrying, and scan fewer pages at once.";
+      try {
+        const headers = response.getAllHeaders();
+        const name = Object.keys(headers).find(function (key) {
+          return key.toLowerCase() === "retry-after";
+        });
+        const value = name ? String(headers[name]).trim() : "";
+        if (/^[0-9]+(?:\.[0-9]+)?$/.test(value) && Number(value) > 0)
+          wait =
+            "Wait at least " +
+            Math.ceil(Number(value)) +
+            " seconds before retrying; use fewer pages if it repeats.";
+        else if (value && Number.isFinite(Date.parse(value)))
+          wait =
+            "Wait at least " +
+            Math.max(1, Math.ceil((Date.parse(value) - Date.now()) / 1000)) +
+            " seconds before retrying.";
+      } catch (_) {}
+      return "OpenAI temporarily rate-limited this scan (HTTP 429). " + wait;
+    }
+    return "OpenAI rejected this scan (HTTP 429). Check API billing/credits and request limits. The provider did not identify which limit was reached; no automatic retry was made.";
+  }
+  if (status === 401)
+    return "OpenAI rejected the saved API key (HTTP 401). It may be invalid, expired, revoked or missing required permissions. Review the key in Settings.";
+  if (status === 403)
+    return "OpenAI denied this scan (HTTP 403). Check the project's model access and the key's Responses Write permission.";
+  return (
+    "OpenAI scan failed (HTTP " +
+    status +
+    "). Check model access and API settings, or try again later."
+  );
 }

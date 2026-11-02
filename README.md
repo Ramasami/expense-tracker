@@ -252,3 +252,8 @@ Browser-only financial writes cannot guarantee a global lock across devices or c
 Every push to `main` starts the independent **Release Budget Tracker** workflow. It runs unit tests and builds the static site before publishing `v1.0.<workflow run number>` with generated release notes and a downloadable `budget-tracker-v1.0.N.zip` site build. Failed checks do not publish a release. Re-running a workflow keeps an existing release and its original assets. Release builds do not replace the separate GitHub Pages deployment workflow.
 
 Historical major milestones are tagged `v0.1.0` through `v0.10.0`, covering secure Sheet-backed access, shared/offline receipts, compact transactions, owners/accounts, account switching, cards/loans, statement reconciliation, dynamic balances, planning/recovery, and guides/AI scanning. These tags point to the original commits; they do not rewrite history or redeploy an old version. The original `0.0.x` versions are preserved.
+
+
+### Scanner HTTP 429 troubleshooting
+
+The scanner distinguishes OpenAI exhausted credits, project/organization spending limits, usage limits and temporary request limits using provider error codes. Billing/quota problems require checking [OpenAI Billing](https://platform.openai.com/settings/organization/billing/overview) and applicable limits; waiting alone does not resolve them. For temporary rate limits, follow the displayed minimum Retry-After delay and try fewer pages. Unknown 429 codes remain explicitly ambiguous. No raw provider error message or key is exposed, and scans never automatically retry. Existing keys stay saved. See the [official OpenAI error guide](https://developers.openai.com/api/docs/guides/error-codes).
