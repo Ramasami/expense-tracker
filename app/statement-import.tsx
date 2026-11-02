@@ -16,11 +16,7 @@ import {
   scanDocumentSchema,
 } from "../lib/document-scanner";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
-import {
-  AI_PROVIDERS,
-  GEMINI_PRIVACY,
-  type AIProvider,
-} from "../lib/ai-providers";
+import { AI_PROVIDERS, type AIProvider } from "../lib/ai-providers";
 type Preview = {
   record: any;
   selected: boolean;
@@ -806,9 +802,6 @@ export default function StatementImport({
                         upload page screenshots.
                       </small>
                     )}
-                    {scannerProvider === "gemini" && (
-                      <p className="scanner-privacy">{GEMINI_PRIVACY}</p>
-                    )}
                     <details className="scan-about">
                       <summary>How it works &amp; setup</summary>
                       <p>
@@ -818,17 +811,13 @@ export default function StatementImport({
                         your Sheet until you confirm.
                       </p>
                       <small>
-                        Documents are sent to{" "}
-                        {AI_PROVIDERS[scannerProvider || "openai"].name} through
-                        the authenticated Google service. The API key stays on
-                        the server. Originals are not saved as receipts
-                        automatically.
+                        Originals are not attached as receipts automatically.
                       </small>
                       <p role="status">
                         {scannerChecking
                           ? "Checking scanner configuration…"
                           : scannerConfigured === true
-                            ? "Configured · API key saved securely on the server. No further setup needed."
+                            ? "Configured · ready to analyze."
                             : scannerConfigured === false
                               ? "Scanner not configured yet."
                               : scannerCheckError}

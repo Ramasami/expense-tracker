@@ -2560,7 +2560,7 @@ test("configured scanner stays ready after reload without asking for the key aga
       .getByRole("button", { name: "Upload using AI", exact: true })
       .click();
     await expect(dialog.locator("[role=status]")).toContainText(
-      "Configured · API key saved securely on the server",
+      "Configured · ready to analyze",
     );
     await expect(
       dialog.getByText("Scanner setup", { exact: true }),
@@ -3098,8 +3098,8 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
       { exact: true },
     );
     await expect(key).toBeEnabled();
-    if (id === "gemini")
-      await expect(settings).toContainText("Do not upload sensitive");
+    await expect(settings.locator(".scanner-privacy")).toHaveCount(0);
+    await expect(settings).not.toContainText("human review");
     await key.fill("synthetic-provider-key-test-only");
     await settings
       .getByRole("button", { name: "Save API key securely", exact: true })

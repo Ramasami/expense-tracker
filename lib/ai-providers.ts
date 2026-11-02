@@ -30,5 +30,3 @@ export const AI_PROVIDERS = {
   },
 } as const;
 export type AIProvider = keyof typeof AI_PROVIDERS;
-export const GEMINI_PRIVACY =
-  "Do not upload sensitive documents on Gemini’s free tier; uploads may be used for product improvement or human review.";

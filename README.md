@@ -301,7 +301,7 @@ For Gemini, create a key in [Google AI Studio](https://aistudio.google.com/api-k
 
 Selected images/PDFs and active tags go only to the explicitly selected provider. Uploads display the provider; a change while a dialog is open fails safely and requires reopening it. There is no automatic fallback or retry. All adapters return the same validated review proposals, and confirmation remains mandatory before ordinary audited Sheet writes. Gemini quota, key/model access, blocked and incomplete responses fail visibly without importing data.
 
-**Gemini free-tier privacy:** free inputs/outputs may be used to improve Google products and reviewed by humans. Do not submit sensitive or personal statements under unpaid terms; use redacted documents or an eligible paid project. Free access is model/project/region/quota dependent, not guaranteed. See [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [data terms](https://ai.google.dev/gemini-api/terms); the same notice appears in Settings and uploads.
+**Gemini free-tier privacy:** free inputs/outputs may be used to improve Google products and reviewed by humans. Do not submit sensitive or personal statements under unpaid terms; use redacted documents or an eligible paid project. Free access is model/project/region/quota dependent, not guaranteed. See [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [data terms](https://ai.google.dev/gemini-api/terms); data-handling details are available in the dedicated privacy policy.
 
 Future providers require an entry in `lib/ai-providers.ts`, an allowlisted Apps Script adapter/configuration and tests. Arbitrary provider URLs are deliberately unsupported to protect keys and financial documents. Provider metadata never contains credentials.
 
@@ -317,4 +317,7 @@ Claude is available as **Anthropic Claude** in the same selector. Save an Anthro
 Phone/tablet viewport handling blocks pinch/Safari gestures and double-click zoom while preserving single-finger scrolling and ordinary clicks. The final coarse-pointer CSS rule keeps form controls, including scanner keys, at 16 px to avoid automatic focus zoom; later component styles must not override it. Browser/OS accessibility overrides remain outside application control.
 
 
-Settings shows only actionable provider selection, saved-key status, key creation/replacement and connection testing, with brief permission/billing and Gemini privacy notes. Long technical explanations and unavailable-provider descriptions remain in documentation rather than the Settings screen. AI setup remains expanded; app version, appearance/defaults and Google account controls remain available.
+Settings shows only actionable provider selection, saved-key status, key creation/replacement and connection testing, with brief permission/billing notes. Long technical explanations and unavailable-provider descriptions remain in documentation rather than the Settings screen. AI setup remains expanded; app version, appearance/defaults and Google account controls remain available.
+
+
+Settings and AI upload screens omit privacy callouts and data-policy explanations. The separate privacy policy and maintainer references retain accurate data-handling information. Provider choice, capabilities, setup, progress, errors and review confirmation stay visible where relevant.

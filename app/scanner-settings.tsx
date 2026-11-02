@@ -6,11 +6,7 @@ import {
   testScannerKey,
   selectScannerProvider,
 } from "../lib/document-scanner";
-import {
-  AI_PROVIDERS,
-  GEMINI_PRIVACY,
-  type AIProvider,
-} from "../lib/ai-providers";
+import { AI_PROVIDERS, type AIProvider } from "../lib/ai-providers";
 export default function ScannerSettings({ disabled }: { disabled: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Awaited<
@@ -76,18 +72,6 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
           Applies to all owners. Saved keys are kept when switching.
         </small>
       </label>
-      {provider === "gemini" && (
-        <p className="scanner-privacy">
-          {GEMINI_PRIVACY}{" "}
-          <a
-            href="https://ai.google.dev/gemini-api/terms"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Google data terms ↗
-          </a>
-        </p>
-      )}
       <p role="status">
         {message ||
           (busy
