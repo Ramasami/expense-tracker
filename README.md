@@ -218,7 +218,7 @@ The scanner is intentionally unavailable until a server key is configured. Other
 4. Optionally set `OPENAI_MODEL`; the default is `gpt-4.1-mini`. Select a model supporting image/PDF inputs, Responses and strict JSON-schema outputs.
 5. Ensure the Apps Script deployment includes the current source, then use the scanner. No new Google OAuth scope is needed beyond the existing external-request permission.
 
-No API key is sent back to the browser. API usage/billing and OpenAI’s applicable data policies still apply. The request uses `store:false`; this is not a promise of zero retention. There is no automatic retry that might unexpectedly repeat a billable analysis. Live model quality/availability requires your configured key; automated tests mock the provider and do not incur charges.
+No API key is sent back to the browser. API usage/billing and OpenAI’s applicable data policies still apply. The request uses `store:false`; this is not a promise of zero retention. Document analyses are never automatically retried. Live model quality/availability requires your configured key; automated tests mock the provider and do not incur charges.
 
 ## Data layout and write integrity
 
@@ -256,7 +256,7 @@ Historical major milestones are tagged `v0.1.0` through `v0.10.0`, covering secu
 
 ### Scanner HTTP 429 troubleshooting
 
-The scanner distinguishes OpenAI exhausted credits, project/organization spending limits, usage limits and temporary request limits using provider error codes. Billing/quota problems require checking [OpenAI Billing](https://platform.openai.com/settings/organization/billing/overview) and applicable limits; waiting alone does not resolve them. For temporary rate limits, follow the displayed minimum Retry-After delay and try fewer pages. Unknown 429 codes remain explicitly ambiguous. No raw provider error message or key is exposed, and scans never automatically retry. Existing keys stay saved. See the [official OpenAI error guide](https://developers.openai.com/api/docs/guides/error-codes).
+The scanner distinguishes OpenAI exhausted credits, project/organization spending limits, usage limits and temporary request limits using provider error codes. Billing/quota problems require checking [OpenAI Billing](https://platform.openai.com/settings/organization/billing/overview) and applicable limits; waiting alone does not resolve them. For temporary rate limits, follow the displayed minimum Retry-After delay and try fewer pages. Unknown 429 codes remain explicitly ambiguous. No raw provider error message or key is exposed, and document scans never automatically retry. Existing keys stay saved. See the [official OpenAI error guide](https://developers.openai.com/api/docs/guides/error-codes).
 
 
 ### AI document inference and credit card uploads
@@ -299,7 +299,7 @@ In **Settings → AI bill & statement scanner**, choose **Test saved API key** a
 
 For Gemini, create a key in [Google AI Studio](https://aistudio.google.com/api-keys), restrict API access to **Generative Language API**, and paste it into the Gemini text field. Browser referrer restrictions do not work for Apps Script requests. Keys stay only in Script properties and are never returned, cached or included in Sheet backups. The default model is `gemini-3.8-flash`; the service owner can override `GEMINI_MODEL` with a compatible model. No real key is needed for automated tests.
 
-Selected images/PDFs and active tags go only to the explicitly selected provider. Uploads display the provider; a change while a dialog is open fails safely and requires reopening it. There is no automatic fallback or retry. All adapters return the same validated review proposals, and confirmation remains mandatory before ordinary audited Sheet writes. Gemini quota, key/model access, blocked and incomplete responses fail visibly without importing data.
+Selected images/PDFs and active tags go only to the explicitly selected provider. Uploads display the provider; a change while a dialog is open fails safely and requires reopening it. There is no automatic fallback or document-analysis retry. All adapters return the same validated review proposals, and confirmation remains mandatory before ordinary audited Sheet writes. Gemini quota, key/model access, blocked and incomplete responses fail visibly without importing data.
 
 **Gemini free-tier privacy:** free inputs/outputs may be used to improve Google products and reviewed by humans. Do not submit sensitive or personal statements under unpaid terms; use redacted documents or an eligible paid project. Free access is model/project/region/quota dependent, not guaranteed. See [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [data terms](https://ai.google.dev/gemini-api/terms); data-handling details are available in the dedicated privacy policy.
 
@@ -328,3 +328,10 @@ Settings and AI upload screens omit privacy callouts and data-policy explanation
 Settings displays all four supported provider rows together, each with a visible text input, Save action and Saved/Not added status. Enter any or all keys without switching the active AI. Saving or replacing a key updates only its server property and does not change `AI_PROVIDER`. Blank fields do not erase saved keys. Previously saved raw keys are never returned; only their saved status is displayed. The separate **Use for uploads** dropdown lists only providers with saved keys, and the server also rejects selecting an unconfigured provider. With no configured active provider, save a key and explicitly choose it. Test saved API key tests the selected AI only.
 
 Key inputs use text (not password) as requested, with autocomplete disabled. Copied surrounding whitespace is trimmed before validation and saving. Non-OpenAI keys accept visible ASCII punctuation, including dots, rather than an overly narrow browser pattern; whitespace inside a key, control/header characters, short and oversized inputs are rejected with a clear message. OpenAI retains its project-key validation. Native pattern validation no longer blocks valid pasted Gemini keys. No real API calls occur while saving; saved status does not certify quota or billing.
+
+
+### Gemini key-test diagnostics and HTTP 503
+
+The Gemini saved-key test uses the configured model’s documented GenerateContent endpoint, `x-goog-api-key`, a fixed “Reply with OK.” user prompt and a 1,024-token output cap. It omits document schema, system instructions and model-specific thinking settings. A 503 is an upstream service-unavailable response; it does not establish the exact cause, prove a bad key or certify a provider-wide outage. The saved key is preserved.
+
+Only this document-free Gemini key test retries an explicit HTTP 503, with at most three total attempts and roughly 1/2-second exponential delays plus jitter. Retry-After is honored; delays over five seconds or a retry starting beyond a 45-second budget stop retries and display wait guidance. No retries occur after successful, blocked, malformed, quota/auth, other HTTP errors or transport failures. Tests keep one actor cooldown; no scan quota is charged. Failed attempts may still be subject to provider accounting. Document analysis remains single-attempt, and no alternative model/provider is selected automatically. Tests use mocks rather than a real key; final confirmation of project/model availability requires the user’s next test.

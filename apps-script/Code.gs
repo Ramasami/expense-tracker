@@ -399,35 +399,52 @@ function selectScannerProvider_(req, actor) {
   }
 }
 function geminiRequest_(config, parts, prompt, schema) {
-  const generationConfig = {
-    maxOutputTokens: schema ? 16000 : 1024,
-    thinkingConfig: { thinkingLevel: "low" },
+  const generationConfig = { maxOutputTokens: schema ? 16000 : 1024 };
+  const body = {
+    contents: [{ role: "user", parts: parts }],
+    generationConfig: generationConfig,
   };
   if (schema) {
+    body.systemInstruction = { parts: [{ text: prompt }] };
+    if (/^gemini-[34](?:\.|-)/.test(config.model))
+      generationConfig.thinkingConfig = { thinkingLevel: "low" };
     generationConfig.responseFormat = {
       text: { mimeType: "APPLICATION_JSON", schema: schema },
     };
   }
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+    encodeURIComponent(config.model) +
+    ":generateContent";
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    headers: { "x-goog-api-key": config.key },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true,
+  };
   let response;
-  try {
-    response = UrlFetchApp.fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/" +
-        encodeURIComponent(config.model) +
-        ":generateContent",
-      {
-        method: "post",
-        contentType: "application/json",
-        headers: { "x-goog-api-key": config.key },
-        payload: JSON.stringify({
-          systemInstruction: { parts: [{ text: prompt }] },
-          contents: [{ role: "user", parts: parts }],
-          generationConfig: generationConfig,
-        }),
-        muteHttpExceptions: true,
-      },
+  const started = Date.now();
+  // Retry only explicit 503 responses to the fixed, document-free key test.
+  // Analysis, transport failures, quota/auth errors and successful responses
+  // are never retried or redirected to another model/provider.
+  const maxAttempts = schema ? 1 : 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      response = UrlFetchApp.fetch(url, options);
+    } catch (_) {
+      throw Error("Could not reach Gemini. Try again when connected.");
+    }
+    if (response.getResponseCode() !== 503 || attempt + 1 === maxAttempts)
+      break;
+    const minimum = geminiRetryAfter_(response);
+    const delay = Math.max(
+      minimum,
+      1000 * Math.pow(2, attempt) + Math.floor(Math.random() * 250),
     );
-  } catch (_) {
-    throw Error("Could not reach Gemini. Try again when connected.");
+    // Keep the test bounded, and never retry earlier than Google's requested delay.
+    if (delay > 5000 || Date.now() - started + delay > 45000) break;
+    Utilities.sleep(delay);
   }
   if (response.getResponseCode() !== 200)
     throw Error(scannerProviderError_(response, "gemini"));
@@ -457,6 +474,20 @@ function geminiRequest_(config, parts, prompt, schema) {
   if (!text.trim())
     throw Error("Gemini returned no usable text. Try again later.");
   return text;
+}
+
+function geminiRetryAfter_(response) {
+  try {
+    const headers = response.getAllHeaders();
+    const name = Object.keys(headers).find(function (key) {
+      return key.toLowerCase() === "retry-after";
+    });
+    const value = name ? String(headers[name]).trim() : "";
+    if (/^[0-9]+(?:\.[0-9]+)?$/.test(value)) return Number(value) * 1000;
+    if (value && Number.isFinite(Date.parse(value)))
+      return Math.max(0, Date.parse(value) - Date.now());
+  } catch (_) {}
+  return 0;
 }
 
 function groqRequest_(config, content, prompt, schema) {
@@ -919,8 +950,20 @@ function scannerProviderError_(response, provider) {
   }
   if (provider === "gemini") {
     const status = response.getResponseCode();
+    if (status === 503) {
+      const delay = geminiRetryAfter_(response);
+      return (
+        "Gemini returned service unavailable (HTTP 503). " +
+        (delay > 0 && Number.isFinite(delay)
+          ? "Wait at least " +
+            Math.ceil(delay / 1000) +
+            " seconds before retrying. "
+          : "Wait a minute and retry. ") +
+        "This response does not identify the exact cause. Your key is still saved; you can also choose another saved AI in Settings."
+      );
+    }
     if (status === 429)
-      return "Gemini quota or rate limit reached (HTTP 429). Check Google AI Studio limits and free-tier availability; retry after the limit resets or review billing. Your key stays saved. No automatic retry was made.";
+      return "Gemini quota or rate limit reached (HTTP 429). Check Google AI Studio limits and free-tier availability; retry after the limit resets or review billing. Your key stays saved. Quota errors are not automatically retried.";
     if (status === 400 || status === 401 || status === 403)
       return (
         "Gemini rejected the request (HTTP " +

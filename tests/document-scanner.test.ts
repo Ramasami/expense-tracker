@@ -464,6 +464,9 @@ test("Gemini tests use only a fixed prompt; errors and blocked/incomplete output
   const sent = JSON.parse(calls[0].options.payload);
   assert.deepEqual(sent.contents[0].parts, [{ text: "Reply with OK." }]);
   assert.equal(sent.generationConfig.responseFormat, undefined);
+  assert.equal(sent.generationConfig.thinkingConfig, undefined);
+  assert.equal(sent.systemInstruction, undefined);
+  assert.equal(sent.generationConfig.maxOutputTokens, 1024);
   assert.throws(() => sandbox.testScannerKey_("owner", "gemini"), /Wait/);
   for (const status of [400, 401, 403, 404, 429, 500]) {
     const failed = gemini(status, {
@@ -740,4 +743,108 @@ test("all saved key statuses survive selection and keys with punctuation or surr
       ),
     /Unsupported/,
   );
+});
+
+test("Gemini key test retries only explicit 503s with bounded backoff and identical minimal requests", () => {
+  const context = gemini();
+  const sleeps: number[] = [];
+  context.sandbox.Utilities.sleep = (ms: number) => sleeps.push(ms);
+  context.sandbox.UrlFetchApp.fetch = (url: string, options: any) => {
+    context.calls.push({ url, options });
+    return {
+      getResponseCode: () => (context.calls.length < 3 ? 503 : 200),
+      getAllHeaders: () => ({}),
+      getContentText: () =>
+        JSON.stringify({
+          candidates: [
+            { finishReason: "STOP", content: { parts: [{ text: "OK" }] } },
+          ],
+        }),
+    };
+  };
+  assert.equal(context.sandbox.testScannerKey_("owner", "gemini").ok, true);
+  assert.equal(context.calls.length, 3);
+  assert.equal(sleeps.length, 2);
+  assert.ok(sleeps[0] >= 1000 && sleeps[0] < 1250);
+  assert.ok(sleeps[1] >= 2000 && sleeps[1] < 2250);
+  for (const call of context.calls) {
+    assert.equal(call.url, context.calls[0].url);
+    assert.equal(call.options.payload, context.calls[0].options.payload);
+    assert.deepEqual(JSON.parse(call.options.payload), {
+      contents: [{ role: "user", parts: [{ text: "Reply with OK." }] }],
+      generationConfig: { maxOutputTokens: 1024 },
+    });
+  }
+  assert.equal(context.props.get("GEMINI_API_KEY"), "synthetic-gemini-key");
+  assert.equal(context.props.has("scan-count:2026-11-02:owner"), false);
+  assert.throws(
+    () => context.sandbox.testScannerKey_("owner", "gemini"),
+    /Wait/,
+  );
+  assert.equal(context.calls.length, 3);
+});
+
+test("persistent Gemini 503s stop after three key-test attempts but document analysis is never retried", () => {
+  for (const scan of [false, true]) {
+    const context = gemini(503, {
+      error: { message: "private document synthetic-gemini-key" },
+    });
+    const sleeps: number[] = [];
+    context.sandbox.Utilities.sleep = (ms: number) => sleeps.push(ms);
+    assert.throws(
+      () =>
+        scan
+          ? context.sandbox.analyzeDocuments_(request, "owner")
+          : context.sandbox.testScannerKey_("owner", "gemini"),
+      (e: any) => {
+        assert.match(e.message, /HTTP 503/);
+        assert.match(e.message, /does not identify the exact cause/);
+        assert.match(e.message, /key is still saved/);
+        assert.ok(!e.message.includes("private document"));
+        assert.ok(!e.message.includes("synthetic-gemini-key"));
+        return true;
+      },
+    );
+    assert.equal(context.calls.length, scan ? 1 : 3);
+    assert.equal(sleeps.length, scan ? 0 : 2);
+  }
+});
+
+test("Gemini test respects Retry-After and never retries transport/auth/quota errors", () => {
+  for (const seconds of [3, 60]) {
+    const context = gemini(503);
+    const sleeps: number[] = [];
+    context.sandbox.Utilities.sleep = (ms: number) => sleeps.push(ms);
+    context.sandbox.UrlFetchApp.fetch = (_url: string, _options: any) => {
+      context.calls.push({});
+      return {
+        getResponseCode: () => 503,
+        getAllHeaders: () => ({ "Retry-After": String(seconds) }),
+        getContentText: () => "{}",
+      };
+    };
+    assert.throws(
+      () => context.sandbox.testScannerKey_("owner", "gemini"),
+      new RegExp("at least " + seconds + " seconds"),
+    );
+    assert.equal(context.calls.length, seconds === 3 ? 3 : 1);
+    assert.ok(sleeps.every((ms) => ms >= seconds * 1000 && ms <= 5000));
+  }
+  for (const code of [400, 401, 403, 404, 429, 500]) {
+    const context = gemini(code);
+    context.sandbox.Utilities.sleep = () => assert.fail("No delay expected");
+    assert.throws(() => context.sandbox.testScannerKey_("owner", "gemini"));
+    assert.equal(context.calls.length, 1);
+  }
+  const context = gemini();
+  let attempts = 0;
+  context.sandbox.UrlFetchApp.fetch = () => {
+    attempts++;
+    throw Error("private transport details");
+  };
+  assert.throws(
+    () => context.sandbox.testScannerKey_("owner", "gemini"),
+    /Could not reach Gemini/,
+  );
+  assert.equal(attempts, 1);
 });
