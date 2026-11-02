@@ -50,15 +50,15 @@ export default function PrivacyPage() {
         caches or backups.
       </p>
       <p>
-        When you choose Analyze with OpenAI, the selected bills, images or PDFs
-        and the active tag names are sent through the authenticated Google
-        service to OpenAI for extraction. Your Google token, owner email and the
-        rest of your ledger are not forwarded to OpenAI. The service uses a
-        server-side API key and requests store:false; OpenAI’s applicable API
-        data policies still apply. Extracted records are proposals until you
-        review and confirm them. Source files are not automatically stored as
-        Drive receipts. Screen guides do not send financial data; optional
-        read-aloud uses your browser’s speech service.
+        When you choose Analyze with AI, the selected bills, images or PDFs and
+        the active tag names are sent through the authenticated Google service
+        to OpenAI for extraction. Your Google token, owner email and the rest of
+        your ledger are not forwarded to OpenAI. The service uses a server-side
+        API key and requests store:false; OpenAI’s applicable API data policies
+        still apply. Extracted records are proposals until you review and
+        confirm them. Source files are not automatically stored as Drive
+        receipts. Screen guides do not send financial data; optional read-aloud
+        uses your browser’s speech service.
       </p>
       <h2>Your controls</h2>
       <p>

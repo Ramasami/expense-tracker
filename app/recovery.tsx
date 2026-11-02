@@ -137,9 +137,12 @@ export default function Recovery({
         )}
         {message && <p role="status">{message}</p>}
         <p className="credit-help">
-          Deletion is recoverable; there is no automatic purge. Restoring a
-          payment rechecks its linked charges and loan balance. Files explicitly
-          deleted from Drive are not restored by restoring a transaction.
+          Normal deletion is recoverable; there is no automatic purge. To
+          permanently remove a deleted transaction, use Transactions → Recently
+          deleted → Delete permanently. This cannot be restored; audit history
+          is retained. Restoring a payment rechecks its linked charges and loan
+          balance. Files explicitly deleted from Drive are not restored by
+          restoring a transaction.
         </p>
       </div>
     </details>

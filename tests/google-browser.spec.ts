@@ -2350,7 +2350,7 @@ test("AI bill scans require review confirmation before any Sheet update", async 
     buffer: Buffer.from("%PDF-test"),
   });
   await dialog
-    .getByRole("button", { name: "Analyze with OpenAI", exact: true })
+    .getByRole("button", { name: "Analyze with AI", exact: true })
     .click();
   await expect(
     dialog.getByLabel("Row 1 description", { exact: true }),
@@ -2476,7 +2476,7 @@ test("a scanner without an API key shows setup guidance and never analyzes or wr
     buffer: Buffer.from("%PDF-test"),
   });
   await dialog
-    .getByRole("button", { name: "Analyze with OpenAI", exact: true })
+    .getByRole("button", { name: "Analyze with AI", exact: true })
     .click();
   await expect(dialog.getByRole("alert")).toContainText("not configured");
   expect(calls).toBe(1);
@@ -2534,7 +2534,7 @@ test("configured scanner stays ready after reload without asking for the key aga
     await dialog
       .getByRole("button", { name: "Scan bills & statements", exact: true })
       .click();
-    await expect(dialog.getByRole("status")).toContainText(
+    await expect(dialog.locator("[role=status]")).toContainText(
       "Configured · API key saved securely on the server",
     );
     await expect(
@@ -2666,11 +2666,14 @@ test("Settings saves an API key server-side once, clears the field, and shows co
     "Configured",
   );
   await expect(
-    page.getByText("Replace API key", { exact: true }),
+    page.getByText("Replace API key (optional)", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByLabel("OpenAI API key", { exact: true }),
-  ).not.toBeVisible();
+  ).toBeVisible();
+  await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveValue(
+    "",
+  );
   expect(saves).toBe(1);
 });
 
@@ -2717,4 +2720,163 @@ test("Add transaction opens image scanning and canceling preserves its draft and
     "fixed",
   );
   expect(f.grids["Expense Ledger"].length).toBe(2);
+});
+
+test("AI scan infers credit card kind and date format, keeps explanation collapsed and respects overrides", async ({
+  page,
+}) => {
+  const { f } = await mockGoogle(page);
+  const account = JSON.parse(f.grids.Accounts[1][7]);
+  account.creditCards = [{ id: "millennia", name: "HDFC Millennia" }];
+  f.grids.Accounts[1][7] = JSON.stringify(account);
+  const hints: any[] = [];
+  await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    const req = route.request().postDataJSON();
+    if (req.action === "scannerStatus")
+      return route.fulfill({
+        json: {
+          ok: true,
+          result: {
+            configured: true,
+            canConfigure: true,
+            model: "gpt-4.1-mini",
+          },
+        },
+      });
+    hints.push(req.hints);
+    return route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          documents: [
+            {
+              sourceIndex: 0,
+              statementKind: "CreditCard",
+              dateFormat: "DMY",
+              creditCardHint: "HDFC Millennia",
+            },
+          ],
+          transactions: [
+            {
+              date: "2026-10-31",
+              description: "Card scan purchase",
+              amount: 555,
+              type: "Expense",
+              expenseMode: "Credit",
+              kind: "purchase",
+              tagId: "sheet-tag-2",
+              accountHint: null,
+              toAccountHint: null,
+              creditCardHint: "HDFC Millennia",
+              currency: "INR",
+              confidence: "high",
+              sourceIndex: 0,
+              notes: "",
+            },
+          ],
+          warnings: [],
+        },
+      },
+    });
+  });
+  await login(page);
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Upload bill or image", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import statement",
+    exact: true,
+  });
+  await expect(
+    dialog.getByLabel("Statement kind", { exact: true }),
+  ).toHaveValue("Auto");
+  await expect(
+    dialog.getByLabel("Import date format", { exact: true }),
+  ).toHaveValue("Auto");
+  await expect(dialog.locator(".scan-about")).not.toHaveAttribute("open", "");
+  await expect(
+    dialog.getByText(/Documents are sent to OpenAI/),
+  ).not.toBeVisible();
+  await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles({
+    name: "card.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-test"),
+  });
+  await dialog
+    .getByRole("button", { name: "Analyze with AI", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("region", { name: "Detected document details" }),
+  ).toContainText("Credit card statement");
+  await expect(dialog.locator(".scan-detection")).toContainText(
+    "Date format: DMY",
+  );
+  await expect(
+    dialog.getByLabel("Import row 1", { exact: true }),
+  ).toBeChecked();
+  expect(hints[0]).toMatchObject({ statementKind: "Auto", dateFormat: "Auto" });
+  await dialog
+    .getByRole("button", { name: "Upload credit card statement", exact: true })
+    .click();
+  await dialog
+    .getByLabel("Import date format", { exact: true })
+    .selectOption("MDY");
+  await dialog
+    .getByLabel("Statement credit card", { exact: true })
+    .selectOption("millennia");
+  await dialog
+    .getByRole("button", { name: "Analyze with AI", exact: true })
+    .click();
+  await expect.poll(() => hints.length).toBe(2);
+  expect(hints[1]).toMatchObject({
+    statementKind: "CreditCard",
+    dateFormat: "MDY",
+    creditCardName: "HDFC Millennia",
+  });
+  expect(f.grids["Expense Ledger"].length).toBe(2);
+});
+
+test("Settings always shows release version and permanently deleted transactions stay gone after reload", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await login(page);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  await expect(page.locator(".app-version")).toContainText(/v1\.0\.\d+/);
+  await expect(page.locator(".app-version a")).toHaveAttribute(
+    "href",
+    /releases\/tag\/v1\.0\.\d+/,
+  );
+  await expect(
+    page.getByLabel("OpenAI API key", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".scanner-settings details")).toHaveCount(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Delete transaction", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Recently deleted", exact: true })
+    .click();
+  await page
+    .getByLabel("Delete transaction permanently", { exact: true })
+    .click();
+  await expect(page.locator(".transaction-item")).toHaveCount(0);
+  await page.reload();
+  await page
+    .locator("nav")
+    .getByRole("button", { name: /^Transactions/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Recently deleted", exact: true })
+    .click();
+  await expect(page.locator(".transaction-item")).toHaveCount(0);
 });

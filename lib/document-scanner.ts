@@ -26,7 +26,19 @@ export const scanRowSchema = z.object({
   sourceIndex: z.number().int().min(0).max(4),
   notes: z.string().max(1000),
 });
+export const scanDocumentSchema = z.object({
+  sourceIndex: z.number().int().min(0).max(4),
+  statementKind: z.enum(["Bank", "CreditCard", "Receipt", "Mixed", "Unknown"]),
+  dateFormat: z.enum(["DMY", "MDY", "YMD", "Unknown"]),
+  creditCardHint: z.string().max(200).nullable(),
+});
+export type ScanHints = {
+  statementKind: "Auto" | "Bank" | "CreditCard" | "Receipt";
+  dateFormat: "Auto" | "DMY" | "MDY" | "YMD";
+  creditCardName?: string;
+};
 export const scanSchema = z.object({
+  documents: z.array(scanDocumentSchema).max(5).default([]),
   transactions: z.array(scanRowSchema).max(100),
   warnings: z.array(z.string().max(1000)).max(20),
 });
@@ -74,6 +86,7 @@ export async function analyzeDocuments(
   tags: RecordData[],
   onStage: (message: string) => void,
   configured?: boolean,
+  hints?: ScanHints,
 ) {
   if (!files.length || files.length > 5)
     throw Error("Select between 1 and 5 images or PDFs.");
@@ -107,6 +120,7 @@ export async function analyzeDocuments(
   const result = scanSchema.parse(
     await service("analyzeDocuments", {
       files: documents,
+      hints,
       tags: tags
         .filter((t) => t.status === "Active")
         .slice(0, 300)
@@ -114,4 +128,20 @@ export async function analyzeDocuments(
     }),
   );
   return result;
+}
+
+// A detected issuer alone must not select one of several cards silently.
+export function matchScannedCard(
+  hint: string | null | undefined,
+  cards: { id: string; name: string }[],
+): string {
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const value = normalize(hint || "");
+  if (!value) return "";
+  const matches = cards.filter((card) => {
+    const name = normalize(card.name);
+    return name === value || (name.length >= 4 && value.includes(name));
+  });
+  return matches.length === 1 ? matches[0].id : "";
 }

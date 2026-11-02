@@ -96,7 +96,7 @@ Income, paid expenses, investment contributions and savings use the selected rep
 - The amount field accepts arithmetic such as `123+345+13*2`, with validated numerical expressions and rupee precision.
 - Search includes merchant, notes, tags, owner, card, payment and account names. Sorting covers newest/oldest, largest/smallest amount and merchant name. The collapsed Filters panel includes tag, type, account, payment method, receipt presence and amount bounds. Reporting dates and owner/account scope are available above.
 - Compact rows show relevant details across several lines. Edit, delete, transaction details, receipts, exports and **Recently deleted** are available without horizontal table scrolling.
-- Deletions are soft and audited. Linked paid charges cannot have financial details changed until the associated payment is deleted. Linked card/loan payments are corrected by deleting and recording the replacement.
+- Normal deletions are soft and audited. **Recently deleted → Delete permanently** removes a previously deleted transaction from its Sheet row after confirmation. It cannot be restored through the app; existing audit history remains. Delete attached receipts first (through transaction details) so their Drive files are cleaned up. Row clearing preserves D/I formulas and never shifts other transaction identities. Linked paid charges cannot have financial details changed until the associated payment is deleted. Linked card/loan payments are corrected by deleting and recording the replacement.
 
 ### Credit Card Bills
 
@@ -198,7 +198,7 @@ Each row uses a stable operation ID. Confirmed rows are marked saved and are not
 
 ### AI bills, screenshots and PDFs
 
-Choose **Scan bills & statements**, select **1–5 JPEG/PNG/WebP images or PDFs**, and click **Analyze with OpenAI**. Existing image compression is applied first. Each prepared file must be below **2 MB**, with **4 MB total** per analysis. Large PDFs must be split before upload. The service limits each owner to **20 analyses per day**.
+Choose **Scan bills & statements**, select **1–5 JPEG/PNG/WebP images or PDFs**, and click **Analyze with AI**. Existing image compression is applied first. Each prepared file must be below **2 MB**, with **4 MB total** per analysis. Large PDFs must be split before upload. The service limits each owner to **20 analyses per day**.
 
 The authenticated Apps Script service sends only the selected documents and active tag names/IDs/types for extraction. The Google token, owner email and the rest of the ledger are not sent to OpenAI. It uses the [Responses API image inputs](https://developers.openai.com/api/docs/guides/images-vision) and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) to return bounded proposals. Images/document text are treated as data, not executable instructions. The extraction endpoint has **no financial Sheet-write path** and no model tools.
 
@@ -249,7 +249,7 @@ Browser-only financial writes cannot guarantee a global lock across devices or c
 
 ## Releases
 
-Every push to `main` starts the independent **Release Budget Tracker** workflow. It runs unit tests and builds the static site before publishing `v1.0.<workflow run number>` with generated release notes and a downloadable `budget-tracker-v1.0.N.zip` site build. Failed checks do not publish a release. Re-running a workflow keeps an existing release and its original assets. Release builds do not replace the separate GitHub Pages deployment workflow.
+Every push to `main` starts the independent **Release Budget Tracker** workflow. It runs unit tests and builds the static site before publishing `v1.0.<patch>` with generated release notes and a downloadable `budget-tracker-v1.0.N.zip` site build. Failed checks do not publish a release. The shared version script counts commits after the v1.0.3 baseline; both the site and release builds use that same immutable version. Settings always shows the version and links its release notes. Re-running a workflow keeps an existing release and its original assets. Release builds do not replace the separate GitHub Pages deployment workflow.
 
 Historical major milestones are tagged `v0.1.0` through `v0.10.0`, covering secure Sheet-backed access, shared/offline receipts, compact transactions, owners/accounts, account switching, cards/loans, statement reconciliation, dynamic balances, planning/recovery, and guides/AI scanning. These tags point to the original commits; they do not rewrite history or redeploy an old version. The original `0.0.x` versions are preserved.
 
@@ -257,3 +257,10 @@ Historical major milestones are tagged `v0.1.0` through `v0.10.0`, covering secu
 ### Scanner HTTP 429 troubleshooting
 
 The scanner distinguishes OpenAI exhausted credits, project/organization spending limits, usage limits and temporary request limits using provider error codes. Billing/quota problems require checking [OpenAI Billing](https://platform.openai.com/settings/organization/billing/overview) and applicable limits; waiting alone does not resolve them. For temporary rate limits, follow the displayed minimum Retry-After delay and try fewer pages. Unknown 429 codes remain explicitly ambiguous. No raw provider error message or key is exposed, and scans never automatically retry. Existing keys stay saved. See the [official OpenAI error guide](https://developers.openai.com/api/docs/guides/error-codes).
+
+
+### AI document inference and credit card uploads
+
+Image/PDF scans default to **Auto** for statement kind and date format. The scanner infers bank, credit card, bill/receipt or mixed document types and DMY/MDY/YMD date order from visible evidence; ambiguous numeric dates remain unselected for review rather than being guessed. You can override these fields before analysis. **Upload credit card statement** starts the dedicated image/PDF flow; CSV card statements retain their existing card selector. Detected details appear above the review list. A card is matched only when its visible name identifies a unique configured card in the selected account; otherwise choose it in preview. Statement totals, balances and limits are not imported as expenses. Card purchases remain deferred, payment history uses the linked bill flow, and uncertain settlement stays unknown until confirmed.
+
+**Analyze with AI** keeps explanatory/setup text inside the collapsed **How it works & setup** panel. Progress and failures remain visible. AI configuration in Settings is always expanded; a configured key is never shown or requested again, and the blank password field is only for deliberate replacement.

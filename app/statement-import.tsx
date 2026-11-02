@@ -8,7 +8,13 @@ import {
   statementAmount,
   statementDuplicates,
 } from "../lib/statement-import";
-import { analyzeDocuments, scannerStatus } from "../lib/document-scanner";
+import {
+  analyzeDocuments,
+  scannerStatus,
+  matchScannedCard,
+  ScanHints,
+  scanDocumentSchema,
+} from "../lib/document-scanner";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 type Preview = {
   record: any;
@@ -63,6 +69,12 @@ export default function StatementImport({
     [scannerConfigured, setScannerConfigured] = useState<boolean | null>(null),
     [scannerChecking, setScannerChecking] = useState(false),
     [scannerCheckError, setScannerCheckError] = useState(""),
+    [scanKind, setScanKind] = useState<ScanHints["statementKind"]>("Auto"),
+    [scanDateFormat, setScanDateFormat] =
+      useState<ScanHints["dateFormat"]>("Auto"),
+    [detected, setDetected] = useState<
+      ReturnType<typeof scanDocumentSchema.parse>[]
+    >([]),
     [scanStage, setScanStage] = useState(""),
     [scanWarnings, setScanWarnings] = useState<string[]>([]),
     [reviewConfirmed, setReviewConfirmed] = useState(false),
@@ -157,10 +169,34 @@ export default function StatementImport({
         tags,
         setScanStage,
         scannerConfigured ?? undefined,
+        {
+          statementKind: scanKind,
+          dateFormat: scanDateFormat,
+          creditCardName: (target?.creditCards || []).find(
+            (item: any) => item.id === card,
+          )?.name,
+        },
       );
+      setDetected(result.documents);
       const source = crypto.randomUUID();
       const proposed: Preview[] = result.transactions.map((row, index) => {
         const needsLink = ["card_payment", "loan_payment"].includes(row.kind);
+        const document = result.documents.find(
+          (item) => item.sourceIndex === row.sourceIndex,
+        );
+        const kind = scanKind === "Auto" ? document?.statementKind : scanKind;
+        const credit =
+          !!card ||
+          kind === "CreditCard" ||
+          (kind !== "Bank" && row.expenseMode === "Credit");
+        const detectedCard =
+          card ||
+          (credit
+            ? matchScannedCard(
+                row.creditCardHint || document?.creditCardHint,
+                target?.creditCards || [],
+              )
+            : "");
         const record: any = {
           date: row.date || "",
           description: row.description,
@@ -172,22 +208,23 @@ export default function StatementImport({
           account: target?.id || "",
           expenseMode:
             row.type === "Expense"
-              ? card
+              ? credit
                 ? "Credit"
-                : row.expenseMode
+                : kind === "Bank"
+                  ? "Debit"
+                  : row.expenseMode
               : "Debit",
-          creditCardId: card,
-          cardRefund:
-            row.kind === "refund" && (!!card || row.expenseMode === "Credit"),
+          creditCardId: detectedCard,
+          cardRefund: row.kind === "refund" && credit,
           scanKind: row.kind,
-          payment: card ? "Credit Card" : "Bank Transfer",
-          settlementStatus: card && row.type === "Expense" ? settlement : "",
+          payment: credit ? "Credit Card" : "Bank Transfer",
+          settlementStatus: credit && row.type === "Expense" ? settlement : "",
           statementImport: true,
           sourceStatementId: `scan-${source}:${index}`,
           notes: `AI scan · ${scanFiles[row.sourceIndex]?.name || "document"}. ${row.notes}`,
           scanNeedsLink: needsLink,
           scanAccountHint: row.accountHint || "",
-          scanCardHint: row.creditCardHint || "",
+          scanCardHint: row.creditCardHint || document?.creditCardHint || "",
           currency: row.currency,
           confidence: row.confidence,
         };
@@ -491,6 +528,21 @@ export default function StatementImport({
                   >
                     Scan bills & statements
                   </button>
+                  <button
+                    type="button"
+                    aria-pressed={mode === "scan" && scanKind === "CreditCard"}
+                    disabled={busy}
+                    onClick={() => {
+                      setMode("scan");
+                      setScanKind("CreditCard");
+                      setCard("");
+                      setPreview([]);
+                      setDetected([]);
+                      setError("");
+                    }}
+                  >
+                    Upload credit card statement
+                  </button>
                 </div>
                 <fieldset className="form-grid" disabled={busy || disabled}>
                   {mode === "csv" ? (
@@ -515,6 +567,7 @@ export default function StatementImport({
                         accept="image/jpeg,image/png,image/webp,application/pdf"
                         onChange={(event) => {
                           setScanFiles(Array.from(event.target.files || []));
+                          setDetected([]);
                           setPreview([]);
                           setReviewConfirmed(false);
                           setError("");
@@ -545,24 +598,83 @@ export default function StatementImport({
                       ))}
                     </select>
                   </label>
-                  <label className="field">
-                    Statement kind
-                    <select
-                      value={card}
-                      aria-label="Statement kind"
-                      onChange={(e) => {
-                        setCard(e.target.value);
-                        setPreview([]);
-                      }}
-                    >
-                      <option value="">Bank transactions</option>
-                      {(target?.creditCards || []).map((c: any) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {mode === "csv" ? (
+                    <label className="field">
+                      Statement kind
+                      <select
+                        value={card}
+                        aria-label="Statement kind"
+                        onChange={(e) => {
+                          setCard(e.target.value);
+                          setPreview([]);
+                        }}
+                      >
+                        <option value="">Bank transactions</option>
+                        {(target?.creditCards || []).map((c: any) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <>
+                      <label className="field">
+                        Statement kind
+                        <select
+                          aria-label="Statement kind"
+                          value={scanKind}
+                          onChange={(event) => {
+                            setScanKind(
+                              event.target.value as ScanHints["statementKind"],
+                            );
+                            setCard("");
+                            setPreview([]);
+                            setDetected([]);
+                          }}
+                        >
+                          <option value="Auto">
+                            Auto · detect from image or PDF
+                          </option>
+                          <option value="Bank">Bank statement</option>
+                          <option value="CreditCard">
+                            Credit card statement
+                          </option>
+                          <option value="Receipt">Bill / receipt</option>
+                        </select>
+                      </label>
+                      {(scanKind === "CreditCard" ||
+                        detected.some(
+                          (item) => item.statementKind === "CreditCard",
+                        ) ||
+                        !!card) && (
+                        <label className="field">
+                          Credit card
+                          <select
+                            aria-label="Statement credit card"
+                            value={card}
+                            onChange={(event) => {
+                              setCard(event.target.value);
+                              setPreview([]);
+                            }}
+                          >
+                            <option value="">
+                              Detect card if possible · review in preview
+                            </option>
+                            {(target?.creditCards || []).map((item: any) => (
+                              <option value={item.id} key={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                          <small>
+                            Choose the account that owns this card. Unmatched
+                            cards require selection in preview.
+                          </small>
+                        </label>
+                      )}
+                    </>
+                  )}
                   <label className="field">
                     Default expense tag
                     <select
@@ -583,11 +695,25 @@ export default function StatementImport({
                     Date format
                     <select
                       aria-label="Import date format"
-                      value={dateFormat}
-                      onChange={(e) => setDateFormat(e.target.value as any)}
+                      value={mode === "scan" ? scanDateFormat : dateFormat}
+                      onChange={(e) => {
+                        if (mode === "scan") {
+                          setScanDateFormat(
+                            e.target.value as ScanHints["dateFormat"],
+                          );
+                          setPreview([]);
+                          setDetected([]);
+                        } else setDateFormat(e.target.value as any);
+                      }}
                     >
+                      {mode === "scan" && (
+                        <option value="Auto">Auto · infer from document</option>
+                      )}
                       <option value="DMY">Day / month / year</option>
                       <option value="MDY">Month / day / year</option>
+                      {mode === "scan" && (
+                        <option value="YMD">Year / month / day</option>
+                      )}
                     </select>
                   </label>
                   {card && (
@@ -653,16 +779,6 @@ export default function StatementImport({
                 )}
                 {mode === "scan" && (
                   <div className="scan-intro">
-                    <p>
-                      Analyze selected documents with OpenAI, then review the
-                      proposed transactions. Nothing is written to your Sheet
-                      until you confirm.
-                    </p>
-                    <small>
-                      Documents are sent to OpenAI through the authenticated
-                      Google service. The API key stays on the server. Originals
-                      are not saved as receipts automatically.
-                    </small>
                     <button
                       className="primary"
                       disabled={
@@ -670,46 +786,90 @@ export default function StatementImport({
                       }
                       onClick={() => void scan()}
                     >
-                      {busy && scanStage ? "Analyzing…" : "Analyze with OpenAI"}
+                      {busy && scanStage ? "Analyzing…" : "Analyze with AI"}
                     </button>
-                    <p role="status">
-                      {scannerChecking
-                        ? "Checking scanner configuration…"
-                        : scannerConfigured === true
-                          ? "Configured · API key saved securely on the server. No further setup needed."
-                          : scannerConfigured === false
-                            ? "Scanner not configured yet."
-                            : scannerCheckError}
-                    </p>
-                    {scannerConfigured !== true && (
-                      <button
-                        className="secondary"
-                        disabled={scannerChecking || busy}
-                        onClick={() => void checkScannerSetup()}
-                      >
-                        Check setup again
-                      </button>
-                    )}
-                    {scannerConfigured === false && (
-                      <details>
-                        <summary>Scanner setup</summary>
-                        <p>
-                          Add your key once in Settings → AI bill & statement
-                          scanner. It remains saved across refreshes, devices,
-                          sign-ins and deployments until you remove or replace
-                          it. API billing is separate from ChatGPT. Never put
-                          the key in source files or the repository.
-                        </p>
-                        <a
-                          href="https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit"
-                          target="_blank"
-                          rel="noreferrer"
+                    <details className="scan-about">
+                      <summary>How it works &amp; setup</summary>
+                      <p>
+                        Analyze selected documents with OpenAI, then review the
+                        proposed transactions. Nothing is written to your Sheet
+                        until you confirm.
+                      </p>
+                      <small>
+                        Documents are sent to OpenAI through the authenticated
+                        Google service. The API key stays on the server.
+                        Originals are not saved as receipts automatically.
+                      </small>
+                      <p role="status">
+                        {scannerChecking
+                          ? "Checking scanner configuration…"
+                          : scannerConfigured === true
+                            ? "Configured · API key saved securely on the server. No further setup needed."
+                            : scannerConfigured === false
+                              ? "Scanner not configured yet."
+                              : scannerCheckError}
+                      </p>
+                      {scannerConfigured !== true && (
+                        <button
+                          className="secondary"
+                          disabled={scannerChecking || busy}
+                          onClick={() => void checkScannerSetup()}
                         >
-                          Apps Script project (advanced) ↗
-                        </a>
-                      </details>
-                    )}
+                          Check setup again
+                        </button>
+                      )}
+                      {scannerConfigured === false && (
+                        <details>
+                          <summary>Scanner setup</summary>
+                          <p>
+                            Add your key once in Settings → AI bill & statement
+                            scanner. It remains saved across refreshes, devices,
+                            sign-ins and deployments until you remove or replace
+                            it. API billing is separate from ChatGPT. Never put
+                            the key in source files or the repository.
+                          </p>
+                          <a
+                            href="https://script.google.com/home/projects/175q3amnRU4HHfmogHaJN7eKwFqxSivLn_ACf6Dp4uZbCJHGZRTM5P2Qu/edit"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Apps Script project (advanced) ↗
+                          </a>
+                        </details>
+                      )}
+                    </details>
                   </div>
+                )}
+                {mode === "scan" && detected.length > 0 && (
+                  <section
+                    className="scan-detection"
+                    aria-label="Detected document details"
+                  >
+                    <b>Document details · review detected values</b>
+                    {detected.map((item) => (
+                      <p key={item.sourceIndex}>
+                        {scanFiles[item.sourceIndex]?.name ||
+                          `Document ${item.sourceIndex + 1}`}{" "}
+                        ·{" "}
+                        {scanKind === "Auto"
+                          ? item.statementKind === "CreditCard"
+                            ? "Credit card statement"
+                            : item.statementKind
+                          : scanKind === "CreditCard"
+                            ? "Credit card statement (selected)"
+                            : scanKind + " (selected)"}{" "}
+                        · Date format:{" "}
+                        {scanDateFormat === "Auto"
+                          ? item.dateFormat
+                          : scanDateFormat + " (selected)"}
+                        {item.creditCardHint ? ` · ${item.creditCardHint}` : ""}
+                        {item.dateFormat === "Unknown" &&
+                        scanDateFormat === "Auto"
+                          ? " · Choose a date format or verify each date; ambiguous dates are not guessed."
+                          : ""}
+                      </p>
+                    ))}
+                  </section>
                 )}
                 {scanWarnings.length > 0 && mode === "scan" && (
                   <details className="scan-warnings" open>

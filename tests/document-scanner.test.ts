@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { scanSchema } from "../lib/document-scanner";
+import { scanSchema, matchScannedCard } from "../lib/document-scanner";
 const proposal = {
   date: "2026-11-02",
   description: "Sample receipt",
@@ -221,4 +221,51 @@ test("OpenAI 429 errors distinguish billing/quota from transient rate limits wit
     );
     assert.equal(calls.length, 1);
   }
+});
+
+test("scans validate inferred document details and only auto-match an unambiguous card", () => {
+  const docs = [
+    {
+      sourceIndex: 0,
+      statementKind: "CreditCard",
+      dateFormat: "DMY",
+      creditCardHint: "HDFC Millennia",
+    },
+  ];
+  assert.equal(
+    scanSchema.parse({
+      documents: docs,
+      transactions: [proposal],
+      warnings: [],
+    }).documents[0].dateFormat,
+    "DMY",
+  );
+  assert.throws(() =>
+    scanSchema.parse({
+      documents: [{ ...docs[0], dateFormat: "GUESS" }],
+      transactions: [],
+      warnings: [],
+    }),
+  );
+  assert.equal(
+    matchScannedCard("HDFC Millennia", [{ id: "c1", name: "HDFC Millennia" }]),
+    "c1",
+  );
+  assert.equal(
+    matchScannedCard("HDFC", [
+      { id: "c1", name: "HDFC Millennia" },
+      { id: "c2", name: "HDFC Regalia" },
+    ]),
+    "",
+  );
+  const { sandbox, calls } = scanner();
+  sandbox.analyzeDocuments_(
+    { ...request, hints: { statementKind: "CreditCard", dateFormat: "MDY" } },
+    "owner",
+  );
+  const sent = JSON.parse(calls[0].options.payload);
+  assert.ok(sent.text.format.schema.required.includes("documents"));
+  assert.match(sent.instructions, /"statementKind":"CreditCard"/);
+  assert.match(sent.instructions, /"dateFormat":"MDY"/);
+  assert.match(sent.instructions, /rather than guessing/);
 });

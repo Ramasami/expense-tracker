@@ -40,10 +40,12 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
                 : "Scanner configuration unavailable.")}
       </p>
       {status?.canConfigure && (
-        <details open={!status.configured}>
-          <summary>
-            {status.configured ? "Replace API key" : "Set up scanner"}
-          </summary>
+        <div className="scanner-key-editor">
+          <h4>
+            {status.configured
+              ? "Replace API key (optional)"
+              : "Set up scanner"}
+          </h4>
           <p>
             Create a <b>Restricted project API key</b> with{" "}
             <b>Responses → Write</b> permission. Read-only cannot analyze
@@ -96,7 +98,11 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
                 minLength={19}
                 maxLength={303}
                 pattern="sk-[A-Za-z0-9_\-]{16,300}"
-                placeholder="sk-…"
+                placeholder={
+                  status.configured
+                    ? "Already saved · enter only to replace"
+                    : "sk-…"
+                }
                 disabled={disabled || busy}
               />
             </label>
@@ -110,7 +116,7 @@ export default function ScannerSettings({ disabled }: { disabled: boolean }) {
             returned to the app. Saving stores the key; permissions and billing
             are checked when you scan. API billing is separate from ChatGPT.
           </small>
-        </details>
+        </div>
       )}
       {status && !status.canConfigure && (
         <small>

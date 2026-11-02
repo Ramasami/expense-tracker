@@ -1014,6 +1014,36 @@ export default function Home() {
     )
       setModal(null);
   }
+  async function permanentlyDelete(r: RecordData) {
+    if (Array.isArray(r.receipts) && r.receipts.length) {
+      setDetail(r);
+      setNotice(
+        "Delete this transaction’s receipts first so their Drive files are cleaned up, then choose Delete permanently.",
+      );
+      return;
+    }
+    if (
+      !confirm(
+        `Permanently delete ${r.description}? This removes the transaction from Google Sheets and cannot be restored. Existing audit history is retained.`,
+      )
+    )
+      return;
+    if (
+      await mutate(
+        "transactions",
+        "purge",
+        {
+          id: r.id,
+          version: r.version,
+          sheetVersion: r.sheetVersion,
+          sourceFingerprint: r.sourceFingerprint,
+          source: r.source,
+        },
+        `purge-${r.id}-${r.version}`,
+      )
+    )
+      setNotice("Transaction permanently removed from Google Sheets.");
+  }
   async function action(entity: string, a: string, r: RecordData) {
     if (
       ["delete", "archive"].includes(a) &&
@@ -1368,6 +1398,18 @@ export default function Home() {
                     >
                       {deleted ? <RotateCcw size={15} /> : <Trash2 size={15} />}
                     </button>
+                    {deleted && (
+                      <button
+                        className="danger"
+                        aria-label="Delete transaction permanently"
+                        title="Delete permanently"
+                        disabled={stale || saving || syncing}
+                        onClick={() => void permanentlyDelete(r)}
+                      >
+                        <Trash2 size={15} />
+                        <span>Delete permanently</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3189,6 +3231,21 @@ export default function Home() {
               {page === "Settings" && (
                 <section className="card settings">
                   <h2>Your space, your way</h2>
+                  <div className="app-version">
+                    <span>App version</span>
+                    <strong>
+                      {process.env.NEXT_PUBLIC_APP_VERSION || "Development"}
+                    </strong>
+                    {process.env.NEXT_PUBLIC_APP_VERSION?.startsWith("v") && (
+                      <a
+                        href={`https://github.com/Ramasami/expense-tracker/releases/tag/${process.env.NEXT_PUBLIC_APP_VERSION}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Release notes ↗
+                      </a>
+                    )}
+                  </div>
                   <p>
                     Your approved Google account is required to view and update
                     the shared workbook. Financial records are fetched directly

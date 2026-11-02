@@ -340,3 +340,118 @@ test("fresh Sheet data blocks duplicate statement imports unless explicitly revi
       2,
     );
   }));
+
+test("permanent deletion clears only a deleted ledger row, preserves formulas and survives a lost response retry", () =>
+  signed(async (f) => {
+    const created = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: tx,
+      operationId: "purge-create",
+    });
+    await assert.rejects(
+      () =>
+        saveGoogle({
+          entity: "transactions",
+          action: "purge",
+          record: created.record,
+          operationId: "purge-active",
+        }),
+      /already deleted/,
+    );
+    const deleted = await saveGoogle({
+      entity: "transactions",
+      action: "delete",
+      record: created.record,
+      operationId: "purge-delete",
+    });
+    const row = deleted.record.sourceRow - 1;
+    const formulas = [
+      f.grids["Expense Ledger"][1][3],
+      f.grids["Expense Ledger"][1][8],
+    ];
+    const request = {
+      entity: "transactions",
+      action: "purge",
+      record: {
+        id: deleted.record.id,
+        version: deleted.record.version,
+        sheetVersion: deleted.record.sheetVersion,
+        source: deleted.record.source,
+        sourceFingerprint: deleted.record.sourceFingerprint,
+      },
+      operationId: "purge-final",
+    };
+    const result = await saveGoogle(request);
+    assert.equal(result.ok, true);
+    assert.ok(
+      !result.data.transactions.some((r: any) => r.id === deleted.record.id),
+    );
+    for (const col of [
+      0,
+      1,
+      2,
+      4,
+      5,
+      6,
+      7,
+      ...Array.from({ length: 15 }, (_, i) => i + 9),
+    ])
+      assert.equal(f.grids["Expense Ledger"][row][col], "");
+    assert.deepEqual(
+      [f.grids["Expense Ledger"][1][3], f.grids["Expense Ledger"][1][8]],
+      formulas,
+    );
+    const auditCount = f.grids["Audit Log"].length;
+    const retry = await saveGoogle(request);
+    assert.equal(retry.record.status, "Purged");
+    assert.equal(f.grids["Audit Log"].length, auditCount);
+    await assert.rejects(
+      () =>
+        saveGoogle({ ...request, record: { ...request.record, version: 99 } }),
+      /retry has different fields/i,
+    );
+  }));
+
+test("permanent deletion requires receipt cleanup and honors stale versions", () =>
+  signed(async (f) => {
+    const created = await saveGoogle({
+      entity: "transactions",
+      action: "create",
+      record: {
+        ...tx,
+        receipts: [
+          {
+            id: "receipt-file",
+            name: "bill.png",
+            mimeType: "image/png",
+            size: 10,
+          },
+        ],
+      },
+      operationId: "purge-receipt-create",
+    });
+    const deleted = await saveGoogle({
+      entity: "transactions",
+      action: "delete",
+      record: created.record,
+      operationId: "purge-receipt-delete",
+    });
+    const conflict = await saveGoogle({
+      entity: "transactions",
+      action: "purge",
+      record: created.record,
+      operationId: "purge-stale",
+    });
+    assert.equal(conflict.conflict, true);
+    await assert.rejects(
+      () =>
+        saveGoogle({
+          entity: "transactions",
+          action: "purge",
+          record: deleted.record,
+          operationId: "purge-receipt",
+        }),
+      /Delete attached receipts first/,
+    );
+  }));

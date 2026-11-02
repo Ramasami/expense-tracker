@@ -811,6 +811,95 @@ async function save(operation: CloudOperation): Promise<Record<string, any>> {
         error: "This record changed in Google Sheets.",
       };
   }
+  if (operation.action === "purge") {
+    if (operation.entity !== "transactions" || !old || old.status !== "Deleted")
+      throw Error(
+        "Only an already deleted transaction can be permanently removed.",
+      );
+    if (Array.isArray(old.receipts) && old.receipts.length)
+      throw Error(
+        "Delete attached receipts first so their Drive files are cleaned up before permanently deleting this transaction.",
+      );
+    if (
+      data.transactions.some(
+        (row) =>
+          row.status === "Active" &&
+          row.id !== old.id &&
+          (row.paidTransactionIds || []).includes(old.id),
+      )
+    )
+      throw Error(
+        "An active card payment still references this transaction. Resolve the payment before permanently deleting it.",
+      );
+    const latest = await readGoogleSnapshot();
+    const checked = latest.data.transactions.find((row) => row.id === old.id);
+    if (
+      !checked ||
+      checked.version !== old.version ||
+      checked.sourceFingerprint !== old.sourceFingerprint
+    )
+      return {
+        conflict: true,
+        latest: checked || old,
+        pending: operation.record,
+        error: "This record changed in Google Sheets.",
+      };
+    const sheet = sheets.find((item: any) => item.title === "Expense Ledger");
+    const auditSheet = sheets.find((item: any) => item.title === "Audit Log");
+    const result = { id: old.id, status: "Purged", version: old.version + 1 };
+    const auditValues = [
+      crypto.randomUUID(),
+      new Date().toISOString(),
+      "purge",
+      "transactions",
+      old.id,
+      "Permanently deleted transaction",
+      "{}",
+      JSON.stringify(result),
+      "record removed",
+      0,
+      0,
+      actor,
+      "Website · Google OAuth",
+      "Success",
+      "Audit history retained",
+      operation.operationId,
+      signature,
+    ];
+    // Clear data cells in place; never shift other records or touch D/I formulas.
+    await batch([
+      cellRequest(sheet.sheetId, old.sourceRow, 1, Array(3).fill("")),
+      cellRequest(sheet.sheetId, old.sourceRow, 5, Array(4).fill("")),
+      cellRequest(sheet.sheetId, old.sourceRow, 10, Array(15).fill("")),
+      {
+        appendCells: {
+          sheetId: auditSheet.sheetId,
+          rows: [
+            {
+              values: auditValues.map((value) => ({
+                userEnteredValue:
+                  typeof value === "number"
+                    ? { numberValue: value }
+                    : { stringValue: String(value) },
+              })),
+            },
+          ],
+          fields: "userEnteredValue",
+        },
+      },
+    ]);
+    const confirmed = await readGoogleSnapshot();
+    if (
+      confirmed.data.transactions.some((row) => row.id === old.id) ||
+      !confirmed.data.audit.some(
+        (row) => row.operationId === operation.operationId,
+      )
+    )
+      throw Error(
+        "Google has not confirmed permanent deletion. Sync and retry the same operation.",
+      );
+    return { ok: true, record: result, data: confirmed.data };
+  }
   let input = { ...operation.record, ...(old ? { id: old.id } : {}) };
   if (operation.entity === "transactions") {
     const tag =
