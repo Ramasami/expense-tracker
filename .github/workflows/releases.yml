@@ -1,0 +1,38 @@
+name: Release Budget Tracker
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build release site
+        run: npm run build
+        env:
+          PAGES_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+      - name: Publish versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: v1.0.${{ github.run_number }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          ARCHIVE="budget-tracker-${VERSION}.zip"
+          (cd out && zip -qr "../${ARCHIVE}" .)
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; keeping the original assets."
+          else
+            gh release create "$VERSION" "$ARCHIVE" --target "$COMMIT" --title "Budget Tracker $VERSION" --generate-notes
+          fi

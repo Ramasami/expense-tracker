@@ -68,8 +68,6 @@ import {
   Settings,
   Plus,
   Search,
-  Sun,
-  Moon,
   ArrowUpRight,
   ArrowDownRight,
   ChevronRight,
@@ -1806,7 +1804,10 @@ export default function Home() {
               : "Pull down to sync"}
         </div>
       )}
-      <aside className={mobile ? "sidebar mobile-open" : "sidebar"}>
+      <aside
+        id="app-navigation"
+        className={mobile ? "sidebar mobile-open" : "sidebar"}
+      >
         <a
           className="brand"
           href="#"
@@ -1894,20 +1895,12 @@ export default function Home() {
               <ChevronLeft size={19} />
               <span>Back</span>
             </button>
-            <button
-              className="icon-button menu"
-              aria-label="Open navigation"
-              onClick={() => setMobile(!mobile)}
-            >
-              <Menu />
-            </button>
             <span className="breadcrumb">
               Your space <ChevronRight size={14} />
               <b>{page}</b>
             </span>
           </div>
           <div className="header-actions">
-            <PageHelp key={page} screen={page} onActiveChange={setHelpActive} />
             <label className="search">
               <Search size={16} />
               <input
@@ -1920,25 +1913,27 @@ export default function Home() {
                 aria-label="Search finances"
               />
             </label>
-            <button
-              className="icon-button"
-              aria-label="Toggle dark mode"
-              onClick={() => {
-                const t = theme === "light" ? "dark" : "light";
-                setTheme(t);
-                document.documentElement.dataset.theme = t;
-                localStorage.setItem("wealthtrack-theme", t);
-              }}
-            >
-              {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-            </button>
-            <button className="google-connect" onClick={() => signOut()}>
-              Sign out
-            </button>
             <span className="profile">{actor[0]}</span>
+            <button
+              className="icon-button menu"
+              aria-label="Open navigation"
+              aria-expanded={mobile}
+              aria-controls="app-navigation"
+              onClick={() => setMobile(!mobile)}
+            >
+              <Menu />
+            </button>
           </div>
         </header>
         <main>
+          <div
+            className={
+              toolbar.hidden ? "page-help-bar toolbar-hidden" : "page-help-bar"
+            }
+            onFocusCapture={toolbar.reveal}
+          >
+            <PageHelp key={page} screen={page} onActiveChange={setHelpActive} />
+          </div>
           <div className="greeting">
             <div>
               {page === "Dashboard" && (
@@ -3299,6 +3294,7 @@ export default function Home() {
                   <label>
                     Appearance
                     <select
+                      aria-label="Appearance"
                       value={theme}
                       onChange={(e) => {
                         setTheme(e.target.value);

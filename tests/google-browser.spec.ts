@@ -38,6 +38,10 @@ test("login survives refresh, fetches new sheet values, and sign-out hides data"
   expect(state.signIns).toBe(1);
   expect(state.sheetRequests).toBeGreaterThan(before);
   expect(state.publicRequests).toBe(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page.locator("nav")).toHaveCount(0);
   expect(
@@ -2549,4 +2553,66 @@ test("configured scanner stays ready after reload without asking for the key aga
     if (visit === 0) await page.reload();
   }
   expect(checks).toBe(2);
+});
+
+test("header keeps Back left and menu right, with Help separate and account controls only in Settings", async ({
+  page,
+}) => {
+  await mockGoogle(page);
+  await login(page);
+  for (const width of [1440, 390, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    const header = page.locator(".app-toolbar");
+    await expect(
+      header.getByRole("button", { name: /Go back|Back to/ }),
+    ).toBeVisible();
+    const menu = header.getByRole("button", {
+      name: "Open navigation",
+      exact: true,
+    });
+    await expect(menu).toBeVisible();
+    const backBox = await header.locator(".toolbar-back").boundingBox();
+    const menuBox = await menu.boundingBox();
+    expect(backBox!.x).toBeLessThan(menuBox!.x);
+    await expect(
+      header.getByRole("button", { name: /Help|Sign out|Toggle dark mode/ }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .locator(".page-help-bar")
+        .getByRole("button", { name: "Help for Dashboard" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Sign out", exact: true }),
+    ).toHaveCount(0);
+    if (width === 390) {
+      await expect
+        .poll(async () => {
+          const box = await page.locator(".sidebar").boundingBox();
+          return box!.x + box!.width;
+        })
+        .toBeLessThanOrEqual(1);
+      await page.screenshot({ path: "work/header-mobile.png" });
+    }
+    if (width < 850) {
+      await menu.click();
+      await expect(page.locator(".sidebar")).toHaveClass(/mobile-open/);
+      await page
+        .getByRole("button", { name: "Close navigation", exact: true })
+        .click({ position: { x: width - 10, y: 100 } });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toBeVisible();
+  const appearance = page.getByLabel("Appearance", { exact: true });
+  await appearance.selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await appearance.selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });

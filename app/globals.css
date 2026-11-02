@@ -3142,3 +3142,39 @@ select:disabled {
 .guide-footer .row-actions > .primary:hover {
   background: #e72f51;
 }
+
+/* Help belongs to the screen, separate from the navigation header. */
+.app-toolbar .menu {
+  display: inline-flex;
+}
+.page-help-bar {
+  position: sticky;
+  top: 98px;
+  z-index: 24;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+.page-help-bar .screen-help {
+  pointer-events: auto;
+  box-shadow: var(--shadow);
+}
+.page-help-bar.toolbar-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.page-help-bar.toolbar-hidden .screen-help {
+  pointer-events: none;
+}
+@media (max-width: 850px) {
+  .page-help-bar {
+    top: 82px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-help-bar {
+    transition: none;
+  }
+}

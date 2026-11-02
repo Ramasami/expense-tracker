@@ -61,7 +61,7 @@ An External OAuth app in Testing also needs its permitted test users configured 
 ## Navigation, help and layout
 
 - **Back** returns to the previous in-app screen. It restores the previous owner, reporting dates and shared transaction/list filters and scroll position. The in-memory history is limited to 30 visits and clears on sign-out or reload. It never leaves the app for an unrelated website.
-- The top toolbar contains **Back, menu and Help**. It hides when scrolling down and reappears after a small upward scroll or when reaching the top. It stays available while navigation or a dialog is active. Keyboard focus reveals it too.
+- The top toolbar puts **Back on the left and menu on the right**. **Help** sits separately at the top right of the screen. Theme selection and sign-out are available only in **Settings**. The toolbar and Help hide when scrolling down and reappear after a small upward scroll or when reaching the top. They stay available while navigation or a dialog is active. Keyboard focus reveals it too.
 - **Help** is available on every main screen, sign-in and the privacy page. Each guide has short steps, examples, direct step selection and a quick interactive check. **Show me** highlights an available control without clicking it or writing data; **Continue guide** resumes the tutorial.
 - Optional **Read aloud** uses the browser’s speech service where supported. Guide dialogs support Escape, keyboard focus containment, background scroll locking and reduced-motion preferences. Guides never submit financial changes.
 - Detailed filters, lender history, statement snapshots, forecasts and recovery live in expandable panels. Lists and transactions adapt to narrow screens; transaction rows use compact cards rather than a wide table.
@@ -242,3 +242,10 @@ Browser-only financial writes cannot guarantee a global lock across devices or c
 - AI extraction is a review aid, not guaranteed OCR or automatic bookkeeping; a server-side key is required.
 - Goal funding and forecast scenarios do not create real transactions or reserve funds.
 - Service quotas, Google authorization limits and Drive recovery rules apply. The public app code is not a substitute for private workbook permissions.
+
+
+## Releases
+
+Every push to `main` starts the independent **Release Budget Tracker** workflow. It runs unit tests and builds the static site before publishing `v1.0.<workflow run number>` with generated release notes and a downloadable `budget-tracker-v1.0.N.zip` site build. Failed checks do not publish a release. Re-running a workflow keeps an existing release and its original assets. Release builds do not replace the separate GitHub Pages deployment workflow.
+
+Historical major milestones are tagged `v0.1.0` through `v0.10.0`, covering secure Sheet-backed access, shared/offline receipts, compact transactions, owners/accounts, account switching, cards/loans, statement reconciliation, dynamic balances, planning/recovery, and guides/AI scanning. These tags point to the original commits; they do not rewrite history or redeploy an old version. The original `0.0.x` versions are preserved.
