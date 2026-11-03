@@ -27,7 +27,7 @@ Read [README.md](README.md) for user-visible features, [docs/ARCHITECTURE.md](do
 | Budgets, reconciliation, loan forecasts | `lib/planning.ts`, related `app/` components |
 | Read-only AI financial review | `app/financial-analysis.tsx`, `lib/financial-analysis.ts`, `apps-script/Code.gs` |
 | CSV/AI import preview | `app/statement-import.tsx`, `lib/statement-import.ts`, `lib/document-scanner.ts` |
-| Google identity / verified session | `lib/google-auth.ts`, `lib/google-sheets.ts` |
+| Google identity / verified session | `lib/google-auth.ts`, `lib/session-service.ts`, `apps-script/Auth.gs`, `lib/google-sheets.ts` |
 | Receipts, shared Drive files and scanner server | `lib/receipts.ts`, `app/receipts.tsx`, `apps-script/Code.gs` |
 | Offline read-only behavior | `lib/sheet-cache.ts`, `app/offline-shell.tsx`, `scripts/generate-sw.mjs` |
 | Version and releases | `scripts/release-version.mjs`, `.github/workflows/` |

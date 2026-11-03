@@ -1,3 +1,4 @@
+import { sessionRequest } from "./session-service";
 import { SHEET_ID } from "./public-sheet";
 import { INITIAL_OWNERS, ownerEmails } from "./owners";
 const SCOPE =
@@ -7,23 +8,30 @@ export type GoogleSession = {
   name: string;
   expiresAt: number;
   offline?: boolean;
+  rememberedUntil?: number;
   ownerId?: string;
   ownerName?: string;
 };
 let token = "";
 let session: GoogleSession | null = null;
 let loading: Promise<void> | null = null;
+let authEpoch = 0;
+let restoring: Promise<GoogleSession | null> | null = null;
 export const CLIENT_KEY = "wealthtrack-google-client-id";
 export const SESSION_KEY = "wealthtrack-google-session";
 export function currentGoogleSession() {
   if (session && session.expiresAt > Date.now() + 30000) return session;
+  if (session && (session.rememberedUntil || 0) > Date.now()) {
+    session = { ...session, offline: true };
+    return session;
+  }
   if (session) disconnectGoogle();
   return null;
 }
 export function googleToken() {
   if (!currentGoogleSession())
     throw Error("Sign in to Google to access your sheet.");
-  if (session?.offline)
+  if (session?.offline || (session?.expiresAt || 0) <= Date.now() + 30000)
     throw Error(
       "You are offline. Reconnect and sync before making Google requests.",
     );
@@ -53,6 +61,10 @@ async function verifyProfile(
     cache: "no-store",
     signal: AbortSignal.timeout(20000),
   });
+  if (user.status === 429 || user.status >= 500)
+    throw new TypeError(
+      "Google account verification is temporarily unavailable.",
+    );
   if (!user.ok)
     throw Error("Could not verify the Google account. Sign in again.");
   const profile = await user.json();
@@ -108,17 +120,31 @@ async function verifyProfile(
     ownerName: owner.name,
   };
 }
-export async function restoreGoogleSession(): Promise<GoogleSession | null> {
+export function restoreGoogleSession(): Promise<GoogleSession | null> {
+  if (restoring) return restoring;
+  restoring = restoreSavedSession(authEpoch).finally(() => {
+    restoring = null;
+  });
+  return restoring;
+}
+async function restoreSavedSession(
+  expectedEpoch: number,
+): Promise<GoogleSession | null> {
   try {
     const raw =
       localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
+    const remembered =
+      typeof saved.deviceToken === "string" &&
+      /^[a-f0-9]{96}$/.test(saved.deviceToken) &&
+      Number.isFinite(saved.rememberedUntil) &&
+      saved.rememberedUntil > Date.now();
     if (
       typeof saved.accessToken !== "string" ||
       !saved.accessToken ||
       !Number.isFinite(saved.expiresAt) ||
-      saved.expiresAt <= Date.now() + 30000
+      (saved.expiresAt <= Date.now() + 30000 && !remembered)
     ) {
       disconnectGoogle();
       return null;
@@ -142,6 +168,7 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
         name: String(saved.displayName || saved.verifiedEmail),
         expiresAt: saved.expiresAt,
         offline: true,
+        rememberedUntil: remembered ? saved.rememberedUntil : undefined,
         ownerId:
           saved.ownerId ||
           INITIAL_OWNERS.find((owner) =>
@@ -159,7 +186,27 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
       verified = offlineProfile();
     else {
       try {
+        if (remembered) {
+          const renewed = await sessionRequest("restoreSession", {
+            deviceToken: saved.deviceToken,
+          });
+          if (expectedEpoch !== authEpoch) return null;
+          if (
+            renewed.email !== saved.verifiedEmail ||
+            typeof renewed.accessToken !== "string" ||
+            !renewed.accessToken ||
+            !Number.isFinite(renewed.expiresAt) ||
+            !Number.isFinite(renewed.rememberedUntil) ||
+            renewed.rememberedUntil !== saved.rememberedUntil
+          )
+            throw Error(
+              "Remembered account could not be verified. Sign in again.",
+            );
+          saved.accessToken = renewed.accessToken;
+          saved.expiresAt = renewed.expiresAt;
+        }
         verified = await verifyProfile(saved.accessToken, saved.expiresAt);
+        if (remembered) verified.rememberedUntil = saved.rememberedUntil;
       } catch (error) {
         if (
           error instanceof TypeError ||
@@ -170,6 +217,7 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
         else throw error;
       }
     }
+    if (expectedEpoch !== authEpoch) return null;
     // Persist only the short-lived credential, never financial records or a trusted identity.
     // Migrates logins saved by the previous tab-only version after Google verifies them.
     localStorage.setItem(
@@ -177,6 +225,12 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
       JSON.stringify({
         accessToken: saved.accessToken,
         expiresAt: saved.expiresAt,
+        ...(remembered
+          ? {
+              deviceToken: saved.deviceToken,
+              rememberedUntil: saved.rememberedUntil,
+            }
+          : {}),
         verifiedEmail: verified.email,
         displayName: verified.name,
         ownerId: verified.ownerId,
@@ -189,6 +243,7 @@ export async function restoreGoogleSession(): Promise<GoogleSession | null> {
     session = verified;
     return verified;
   } catch (error) {
+    if (expectedEpoch !== authEpoch) return null;
     disconnectGoogle();
     throw error;
   }
@@ -215,6 +270,7 @@ export function loadGoogleIdentity(): Promise<void> {
   return loading;
 }
 export function signInGoogle(): Promise<GoogleSession> {
+  authEpoch++;
   const clientId = configuredClientId();
   if (!clientId)
     throw Error("Set your Google Web OAuth client ID before signing in.");
@@ -276,6 +332,16 @@ export function signInGoogle(): Promise<GoogleSession> {
   });
 }
 export function disconnectGoogle() {
+  authEpoch++;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "{}");
+    if (saved.deviceToken)
+      void sessionRequest("revokeSession", {
+        deviceToken: saved.deviceToken,
+      }).catch(() => {});
+  } catch {
+    /* Local sign-out still completes offline. */
+  }
   token = "";
   session = null;
   try {
@@ -288,4 +354,96 @@ export function disconnectGoogle() {
   } catch {
     /* Clear the legacy store independently. */
   }
+}
+
+export function rememberedLoginStatus(): Promise<{
+  configured: boolean;
+  canConfigure: boolean;
+}> {
+  return sessionRequest("sessionStatus", { token: googleToken() });
+}
+export function configureRememberedLogin(
+  clientSecret: string,
+): ReturnType<typeof rememberedLoginStatus> {
+  return sessionRequest("configureSession", {
+    token: googleToken(),
+    clientSecret,
+  });
+}
+export function rememberThisDevice(): Promise<GoogleSession> {
+  const current = currentGoogleSession();
+  const accessToken = googleToken(),
+    expectedEpoch = authEpoch;
+  if (!current) throw Error("Sign in first.");
+  const oauth = (window as any).google?.accounts?.oauth2;
+  if (!oauth?.initCodeClient)
+    throw Error("Google authorization is still loading. Try again.");
+  return new Promise((resolve, reject) => {
+    const client = oauth.initCodeClient({
+      client_id: configuredClientId(),
+      scope: SCOPE,
+      ux_mode: "popup",
+      hint: current.email,
+      select_account: false,
+      callback: async (response: any) => {
+        try {
+          if (response.error || typeof response.code !== "string")
+            throw Error("Google authorization was not completed.");
+          const result = await sessionRequest("createSession", {
+            token: accessToken,
+            code: response.code,
+            origin: window.location.origin,
+          });
+          if (expectedEpoch !== authEpoch) {
+            if (result.deviceToken)
+              void sessionRequest("revokeSession", {
+                deviceToken: result.deviceToken,
+              }).catch(() => {});
+            throw Error("Login changed. Sign in again.");
+          }
+          if (
+            !/^[a-f0-9]{96}$/.test(result.deviceToken) ||
+            !Number.isFinite(result.rememberedUntil) ||
+            result.rememberedUntil <= Date.now() ||
+            result.rememberedUntil > Date.now() + 30 * 86400000 + 60000 ||
+            result.email !== current.email
+          )
+            throw Error("Remembered login could not be verified.");
+          const verified = await verifyProfile(
+            result.accessToken,
+            result.expiresAt,
+          );
+          if (expectedEpoch !== authEpoch || verified.email !== current.email)
+            throw Error("Login changed. Sign in again.");
+          verified.rememberedUntil = result.rememberedUntil;
+          localStorage.setItem(
+            SESSION_KEY,
+            JSON.stringify({
+              accessToken: result.accessToken,
+              expiresAt: result.expiresAt,
+              deviceToken: result.deviceToken,
+              rememberedUntil: result.rememberedUntil,
+              verifiedEmail: verified.email,
+              displayName: verified.name,
+              ownerId: verified.ownerId,
+              ownerName: verified.ownerName,
+              verifiedAt: Date.now(),
+            }),
+          );
+          token = result.accessToken;
+          session = verified;
+          resolve(verified);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      error_callback: () =>
+        reject(
+          Error(
+            "Google authorization was cancelled or could not open. Try again.",
+          ),
+        ),
+    });
+    client.requestCode();
+  });
 }

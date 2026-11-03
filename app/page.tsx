@@ -1,4 +1,5 @@
 "use client";
+import SessionSettings from "./session-settings";
 import CashForecast from "./cash-forecast";
 import DuplicateReview from "./duplicate-review";
 import CategorySuggestion from "./category-suggestion";
@@ -326,12 +327,15 @@ export default function Home() {
   async function refreshSheet(force = true, requestedPage = pageRef.current) {
     if (sheetBusy.current || savingRef.current || attachmentBusy.current)
       return;
+    const restoreEpoch = epoch.current;
     let session = currentGoogleSession();
     if (session?.offline && navigator.onLine) {
       try {
         session = await restoreGoogleSession();
+        if (restoreEpoch !== epoch.current) return;
         setGoogleSession(session);
       } catch (e: any) {
+        if (restoreEpoch !== epoch.current) return;
         signOut(e.message);
         return;
       }
@@ -402,6 +406,7 @@ export default function Home() {
     }
   }
   async function connectGoogle() {
+    epoch.current++;
     setConnecting(true);
     setError("");
     try {
@@ -482,11 +487,13 @@ export default function Home() {
     window.addEventListener("storage", onStoredSessionChange);
     const timer = setInterval(checkSession, 15000);
     const reconnect = async () => {
+      const reconnectEpoch = epoch.current;
       void loadGoogleIdentity()
         .then(() => setAuthReady(true))
         .catch(() => setAuthReady(false));
       try {
         const restored = await restoreGoogleSession();
+        if (reconnectEpoch !== epoch.current) return;
         if (!restored) {
           signOut("Your Google session expired. Sign in again.");
           return;
@@ -494,6 +501,7 @@ export default function Home() {
         setGoogleSession(restored);
         await refreshSheet();
       } catch (e: any) {
+        if (reconnectEpoch !== epoch.current) return;
         signOut(e.message);
       }
     };
@@ -505,8 +513,15 @@ export default function Home() {
     };
     const active = () => {
       checkSession();
-      if (!document.hidden && currentGoogleSession() && navigator.onLine)
-        refreshSheet(false);
+      const current = currentGoogleSession();
+      if (!document.hidden && current && navigator.onLine) {
+        if (
+          current.rememberedUntil &&
+          (current.offline || current.expiresAt <= Date.now() + 90000)
+        )
+          void reconnect();
+        else void refreshSheet(false);
+      }
     };
     window.addEventListener("online", reconnect);
     window.addEventListener("offline", goOffline);
@@ -529,10 +544,42 @@ export default function Home() {
     };
   }, []);
   useEffect(() => {
-    if (!googleSession) return;
+    if (
+      !googleSession ||
+      (googleSession.offline && googleSession.rememberedUntil)
+    )
+      return;
+    const renewalEpoch = epoch.current;
     const timer = setTimeout(
-      () => signOut("Your Google session expired. Sign in again."),
-      Math.max(0, googleSession.expiresAt - Date.now() - 30000),
+      () => {
+        if (!googleSession.rememberedUntil) {
+          signOut("Your Google session expired. Sign in again.");
+          return;
+        }
+        void restoreGoogleSession()
+          .then((restored) => {
+            if (renewalEpoch !== epoch.current) return;
+            if (!restored) {
+              signOut("Your remembered login ended. Sign in again.");
+              return;
+            }
+            setGoogleSession(restored);
+            if (restored.offline)
+              failData(
+                "Session renewal is unavailable. Showing cached data; reconnect and sync to edit.",
+              );
+            else void refreshSheet(false);
+          })
+          .catch((error) => {
+            if (renewalEpoch === epoch.current) signOut(error.message);
+          });
+      },
+      Math.max(
+        0,
+        googleSession.expiresAt -
+          Date.now() -
+          (googleSession.rememberedUntil ? 60000 : 30000),
+      ),
     );
     return () => clearTimeout(timer);
   }, [googleSession]);
@@ -3353,6 +3400,10 @@ export default function Home() {
                       </a>
                     )}
                   </div>
+                  <SessionSettings
+                    disabled={stale || syncing || saving}
+                    onRemember={setGoogleSession}
+                  />
                   <ReleaseHistory />
                   <HDFCSettings disabled={stale || syncing || saving} />
                   <ScannerSettings disabled={stale || syncing || saving} />

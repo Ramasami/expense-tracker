@@ -42,8 +42,17 @@ Public frontend variables are visible to visitors. **Never put an OpenAI API key
 - Owners can have several accounts; accounts can have several owners. Adding an owner email does not grant Google Sheet or Drive permissions. Assign the owner and share the Sheet separately.
 - On sign-in the app defaults to the mapped owner. **All** selects the household view. Owner-specific account toggles show only that owner’s active accounts.
 - Keep the workbook’s General access **Restricted**. GitHub Pages serves public code; it does not make the private Sheet accessible.
-- The app stores a short-lived Google access token, expiry and profile locally. Refreshing or reopening an installed phone app reuses a valid session. Sign-out, expiry or clearing site data ends it. There are no browser refresh tokens.
+- The app stores a short-lived Google access token, expiry and profile locally. After one-time server setup, **Settings → Remembered login → Remember this device** grants offline Google access and remembers this device for an absolute **30 days**. Apps Script holds the refresh token; the browser stores only an opaque device credential and the short-lived access token. Reopening and near-expiry renewal do not require another Google popup. Up to five devices per owner are supported. Google revocation, owner/Sheet permission removal, 30-day expiry or sign-out ends access.
 - Online session restoration rechecks Google authorization and owner/Sheet access. The Apps Script service independently checks the caller’s token, application client ID, expiry, verified email, active owner mapping and Sheet access on each request.
+
+### Remembered login setup (once for the app)
+
+1. Deploy both `apps-script/Code.gs` and `apps-script/Auth.gs` with the manifest, keeping the existing deployment URL.
+2. Sign in as the service owner. In **Settings → Remembered login → Google login setup**, enter the **client secret for the existing Google Web OAuth client**. This is not an AI API key. It is submitted over HTTPS and saved as `GOOGLE_OAUTH_CLIENT_SECRET` in Script properties; the input clears and the service never returns it. Never place the secret in a frontend environment variable, Sheet, repository or chat.
+3. On each device, choose **Remember this device** and approve Google access once using the same account already signed in. This enrollment requires the existing verified Google bearer credential and binds the authorization code to that actor. A different Google account is rejected. The popup code exchange uses the calling page origin as its redirect URI, per Google’s GIS code-model documentation.
+4. Normal reopening and access-token renewal use the remembered device credential. A temporary outage preserves it and shows cached data read-only. Revoked access requires sign-in again. The deadline is absolute; renewal never extends the 30-day session.
+
+Sign out removes the local credential immediately and requests server-side device revocation. An offline sign-out cannot contact the server; the removed local credential stays absent and its server entry expires automatically. This static-site deployment uses a JavaScript-readable opaque bearer credential, **not an HttpOnly cookie**. Keep remembered login for devices you trust. Google refresh tokens and the client secret remain server-only. Existing short-lived login continues to work when setup has not been completed.
 
 ### Google OAuth setup
 
@@ -77,7 +86,7 @@ After a verified sign-in, the app may show that account’s last validated Index
 - Startup and reconnect refresh the visible screen. Recently fetched collections are reused for 60 seconds; navigation requests only missing or older required collections. Required ranges are grouped in `values:batchGet`. There is no periodic Sheets polling.
 - The dashboard and transaction flow need ledger, tags, accounts and owner settings. Additional collections and audit history load when a screen or detail view needs them. The recovery panel fetches its additional collections when opened.
 - Offline/stale data has a clear warning and last-sync information. **Edits, imports, uploads, deletion and recovery are disabled until sync succeeds.** A screen with no cached data is unavailable rather than showing invented empty records.
-- The versioned service worker stores only the static app shell. API responses, credentials and receipt bytes are excluded. Offline reopening works after a successful online app load and Sheet sync, while the saved verified session is unexpired. Google cannot recheck revoked permission offline; cached access ends at token expiry or sign-out.
+- The versioned service worker stores only the static app shell. API responses, credentials and receipt bytes are excluded. Offline reopening works after a successful online app load and Sheet sync, while the saved verified session is unexpired. Google cannot recheck revoked permission offline; cached access ends at the saved session deadline (the Google token expiry for ordinary sessions, or the previously verified 30-day device deadline) or sign-out. An expired access token never authorizes Google requests.
 - Reconnecting verifies authorization and syncs before enabling edits. Expired or unverified sessions need online sign-in. New receipt previews and AI scans need connectivity.
 
 ## Screens and features
@@ -214,7 +223,7 @@ Review warnings, dates, amounts, currency, accounts and tags. Uncertain, duplica
 
 You can also start scanning from **Add transaction → Upload bill or image**. Canceling the scanner returns to your untouched manual draft; after confirmed imports, closing it dismisses the original add form.
 
-The final **“I reviewed the selected entries…”** confirmation is required before import. Editing a proposal clears that confirmation. Even then, only pressing the import button writes selected records through the existing Sheet validation/audit flow. Scanned originals are **not automatically attached as Drive receipts**; attach them separately if you want to keep them with a transaction.
+The final **“I reviewed the selected entries…”** confirmation is required before import. Editing a proposal clears that confirmation. Even then, only pressing the import button writes selected records through the existing Sheet validation/audit flow. **Save source files as receipts** is off by default. Enable it to attach the originals during confirmed import; otherwise only transaction details are saved.
 
 ### Configure the scanner API key
 
@@ -353,7 +362,7 @@ Gemini document scans use `responseMimeType: "application/json"` with `responseJ
 
 ### Scanned source receipts
 
-Confirming an AI import also saves each transaction’s source image or PDF in **Bills & receipts**. Review alone saves no Drive files. Upload progress is shown; a failed upload pauses the import before saving that row. Sync/retry an unconfirmed import in the same preview to reuse its uploaded receipt and avoid duplicate transactions. Several rows from one statement get independent attachments, so deleting one receipt does not break the others. Receipts remain available after refresh and load only when opened.
+The **Save source files as receipts** checkbox in Upload using AI is **off by default**, including when opening the scanner from Add transaction. With it off, importing saves transaction details without uploading originals to Drive. Enable it before importing to save each transaction’s source image or PDF in **Bills & receipts**. The attachment choice locks when import begins so a retry cannot change an unconfirmed operation’s payload. Review alone saves no Drive files. Upload progress is shown; a failed upload pauses the import before saving that row. Sync/retry an unconfirmed import in the same preview to reuse its uploaded receipt and avoid duplicate transactions. Several rows from one statement get independent attachments, so deleting one receipt does not break the others. Receipts remain available after refresh and load only when opened.
 
 
 Import previews show persistent labels for every editable field, with a two-column layout that adapts to narrow phones. AI review notes stay collapsed; source receipt names remain visible. Confirmed rows become compact, labeled summaries instead of dimmed disabled forms. When every row is saved, the summary shows the imported total and the footer offers Close without an empty import action or another confirmation checkbox. Unconfirmed rows retain their locked fields and exact-operation retry behavior.

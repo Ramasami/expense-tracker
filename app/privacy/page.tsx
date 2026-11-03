@@ -26,11 +26,12 @@ export default function PrivacyPage() {
         can view and manage shared receipts through that service.
       </p>
       <p>
-        Your browser stores a short-lived Google access token and expiry to
-        maintain your session, appearance preferences, and a per-account offline
-        copy of confirmed Sheet data. The offline copy is marked stale when it
-        cannot be refreshed and is not used for offline edits. Receipt image and
-        PDF bytes are not cached for offline use.
+        Your browser stores a short-lived Google access token and expiry, and
+        optionally a 30-day remembered-device credential, to maintain your
+        session, appearance preferences, and a per-account offline copy of
+        confirmed Sheet data. The offline copy is marked stale when it cannot be
+        refreshed and is not used for offline edits. Receipt image and PDF bytes
+        are not cached for offline use.
       </p>
       <h2>Google access</h2>
       <p>
@@ -69,9 +70,10 @@ export default function PrivacyPage() {
         of your ledger are not forwarded to the AI provider. The service uses a
         server-side API key. OpenAI requests use store:false; the selected
         provider’s API data policies still apply. Extracted records are
-        proposals until you review and confirm them. Source files are not
-        automatically stored as Drive receipts. Screen guides do not send
-        financial data; optional read-aloud uses your browser’s speech service.
+        proposals until you review and confirm them. Source files are not stored
+        as Drive receipts unless you enable Save source files as receipts before
+        import. Screen guides do not send financial data; optional read-aloud
+        uses your browser’s speech service.
       </p>
       <p>
         Gemini unpaid-service inputs and outputs may be used to improve Google
@@ -91,7 +93,7 @@ export default function PrivacyPage() {
         separately in Google sharing settings; remove an owner’s email mapping
         to disable their next online app authorization. Google cannot recheck
         revoked access during an offline session, which remains limited by the
-        saved token’s expiry.
+        saved session’s deadline.
       </p>
       <p>
         Deleting a receipt in the app moves its Drive file to Trash and removes

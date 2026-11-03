@@ -111,7 +111,11 @@ export const screenGuides: Record<string, ScreenGuide> = {
       step(
         "Import and recover",
         "Import CSVs or scan bill images into an editable preview. Check possible duplicates compares nearby dates and merchants without deleting anything. Tag suggestions learn from confirmed entries in the same account. Recently deleted holds recoverable transactions.",
-        ["Preview before saving", "Review duplicates", "Restore when needed"],
+        [
+          "Preview before saving",
+          "Optional source receipts",
+          "Restore when needed",
+        ],
         ".card-heading .row-actions",
         "Import, export and recovery",
       ),
@@ -578,7 +582,7 @@ export const screenGuides: Record<string, ScreenGuide> = {
     steps: [
       step(
         "Your data locations",
-        "The Sheet stores records and Drive stores receipt files. The browser keeps a short-lived session and a read-only offline cache.",
+        "The Sheet stores records and Drive stores receipt files. The browser keeps a read-only offline cache. Remembered login in Settings can keep a trusted device signed in for 30 days after one-time owner setup.",
         ["Google Sheets", "Google Drive", "Device cache"],
       ),
       step(

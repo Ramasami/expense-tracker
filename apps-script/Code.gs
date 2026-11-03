@@ -15,7 +15,12 @@ function doPost(e) {
     if (req.action === "analyzeFinances" && e.postData.contents.length > 65536) throw Error("Financial summary is too large.");
     if (req.action !== "analyzeDocuments" && req.action !== "analyzeFinances" && e.postData.contents.length > 16384)
       throw Error("Invalid request.");
+    if (req.action === "restoreSession") return json_({ok:true,result:restoreDevice_(req)});
+    if (req.action === "revokeSession") return json_({ok:true,result:revokeDevice_(req)});
     const actor = authenticate_(req.token);
+    if (req.action === "sessionStatus") return json_({ok:true,result:authStatus_(actor)});
+    if (req.action === "configureSession") return json_({ok:true,result:configureAuth_(req, actor)});
+    if (req.action === "createSession") return json_({ok:true,result:createDevice_(req, actor)});
     if (["hdfcStatus", "pendingHDFC", "configureHDFC", "beginHDFC", "completeHDFC", "disconnectHDFC", "hdfcPortfolio"].indexOf(req.action) >= 0)
       return json_({ok:true,result:hdfcDispatch_(req,actor)});
     if (req.action === "scannerStatus")
@@ -41,6 +46,7 @@ function doPost(e) {
     return json_({
       ok: false,
       error: String(error.message || "Receipt request failed."),
+      code: error.code || undefined,
     });
   }
 }
@@ -52,7 +58,7 @@ function json_(data) {
 function authenticate_(token) {
   if (typeof token !== "string" || token.length < 10 || token.length > 4096)
     throw Error("Sign in again.");
-  const infoResponse = UrlFetchApp.fetch(
+  const infoResponse = authVerifyFetch_(
     "https://oauth2.googleapis.com/tokeninfo?access_token=" +
       encodeURIComponent(token),
     { muteHttpExceptions: true },
@@ -65,7 +71,7 @@ function authenticate_(token) {
     Number(info.expires_in) <= 0
   )
     throw Error("Invalid Google application session.");
-  const profileResponse = UrlFetchApp.fetch(
+  const profileResponse = authVerifyFetch_(
     "https://www.googleapis.com/oauth2/v3/userinfo",
     { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true },
   );
@@ -75,7 +81,7 @@ function authenticate_(token) {
   const email = String(profile.email || "").toLowerCase();
   if (profile.email_verified !== true)
     throw Error("This Google account is not authorized.");
-  const access = UrlFetchApp.fetch(
+  const access = authVerifyFetch_(
     "https://sheets.googleapis.com/v4/spreadsheets/12AisxtgYgO2fN2tNzbzDNfX4hyAZvksyV2DtOInc5Ls/values:batchGet?ranges=" +
       encodeURIComponent("'App Settings'!A1:H10000"),
     { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true },
@@ -1901,4 +1907,12 @@ function hdfcDispatch_(req, actor) {
     };
   }
   throw Error("Unknown HDFC action.");
+}
+
+function authVerifyFetch_(url, options) {
+  let response;
+  try { response = UrlFetchApp.fetch(url, options); }
+  catch (_) { const error = Error("Google verification is temporarily unavailable. Retry when connected."); error.code = "SESSION_TEMPORARY"; throw error; }
+  if (response.getResponseCode() === 429 || response.getResponseCode() >= 500) { const error = Error("Google verification is temporarily unavailable. Retry when connected."); error.code = "SESSION_TEMPORARY"; throw error; }
+  return response;
 }

@@ -65,6 +65,8 @@ export default function StatementImport({
   initialMode?: "csv" | "scan";
   onClose?: (imported: boolean) => void;
 }) {
+  const [saveSourceReceipts, setSaveSourceReceipts] = useState(false);
+  const [attachmentChoiceLocked, setAttachmentChoiceLocked] = useState(false);
   const [open, setOpen] = useState(false),
     [csv, setCsv] = useState<string[][]>([]),
     [mapping, setMapping] = useState<Record<string, string>>({}),
@@ -103,7 +105,11 @@ export default function StatementImport({
     [filename, setFilename] = useState("");
   useDialogScrollLock(open);
   useEffect(() => {
-    if (!open) setScanFiles([]);
+    if (!open) {
+      setScanFiles([]);
+      setSaveSourceReceipts(false);
+      setAttachmentChoiceLocked(false);
+    }
   }, [open]);
   useEffect(() => setReviewConfirmed(false), [preview]);
   useEffect(() => {
@@ -422,6 +428,7 @@ export default function StatementImport({
     setBusy(true);
     setError("");
     setProgress(0);
+    if (mode === "scan") setAttachmentChoiceLocked(true);
     try {
       let count = 0;
       for (const item of selected) {
@@ -481,7 +488,7 @@ export default function StatementImport({
           );
           break;
         }
-        if (mode === "scan") {
+        if (mode === "scan" && saveSourceReceipts) {
           let receipt = item.receipt;
           if (!receipt) {
             if (!item.sourceFile)
@@ -635,9 +642,20 @@ export default function StatementImport({
                           ? scanFiles.map((file) => file.name).join(" · ")
                           : "Choose up to 5 bills, receipts or statement screenshots"}
                       </small>
-                      <small>
-                        Source files attach to the transactions when you import.
-                      </small>
+                    </label>
+                  )}
+                  {mode === "scan" && (
+                    <label className="source-receipt-option">
+                      <input
+                        type="checkbox"
+                        checked={saveSourceReceipts}
+                        disabled={busy || attachmentChoiceLocked}
+                        onChange={(event) => {
+                          setSaveSourceReceipts(event.target.checked);
+                          setReviewConfirmed(false);
+                        }}
+                      />
+                      Save source files as receipts
                     </label>
                   )}
                   <label className="field">
@@ -860,8 +878,9 @@ export default function StatementImport({
                         your Sheet until you confirm.
                       </p>
                       <small>
-                        Source files attach as receipts when you confirm the
-                        import.
+                        {saveSourceReceipts
+                          ? "Source files will attach as receipts when you confirm."
+                          : "Only transaction details will be saved. Source files will not be attached."}
                       </small>
                       <p role="status">
                         {scannerChecking

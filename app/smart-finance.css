@@ -178,3 +178,50 @@
     margin: 14px 18px;
   }
 }
+.session-settings {
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+  padding-top: 12px;
+}
+.session-settings p,
+.session-settings small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.session-settings details {
+  margin-top: 16px;
+}
+.session-settings summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.session-settings form {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.session-settings label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.session-settings input {
+  width: 100%;
+  min-width: 0;
+}
+.session-settings button {
+  justify-self: start;
+}
+
+.source-receipt-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.source-receipt-option input {
+  flex-shrink: 0;
+}

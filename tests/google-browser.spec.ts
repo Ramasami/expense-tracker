@@ -2352,6 +2352,7 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
     let analyses = 0;
     await page.route("https://script.google.com/macros/s/**/exec", (route) => {
       const req = route.request().postDataJSON();
+      if (req.action === "sessionStatus") return route.fallback();
       if (req.action === "scannerStatus")
         return route.fulfill({
           json: {
@@ -2440,13 +2441,11 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
       f.grids["Expense Ledger"].filter((r) => r[1] === "AI bill proposal"),
     ).toHaveLength(1);
     expect(analyses).toBe(1);
-    expect(uploads).toBe(1);
+    expect(uploads).toBe(0);
     const imported = f.grids["Expense Ledger"].find(
       (r) => r[1] === "AI bill proposal",
     )!;
-    expect(JSON.parse(imported[22])).toEqual([
-      expect.objectContaining({ name: "bill.png", storage: "shared-v1" }),
-    ]);
+    expect(JSON.parse(imported[22] || "[]")).toEqual([]);
   });
 
 test("list controls search account names, filter status and sort report choices", async ({
@@ -2690,6 +2689,7 @@ test("Settings saves an API key server-side once, clears the field, and shows co
   const secret = "sk-proj-synthetic-browser-setup-key-only";
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
     const req = route.request().postDataJSON();
+    if (req.action === "sessionStatus") return route.fallback();
     if (req.action === "configureScanner") {
       expect(req.apiKey).toBe(secret);
       saves++;
@@ -2801,6 +2801,7 @@ test("AI scan infers credit card kind and date format, keeps explanation collaps
   const hints: any[] = [];
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
     const req = route.request().postDataJSON();
+    if (req.action === "sessionStatus") return route.fallback();
     if (req.action === "scannerStatus")
       return route.fulfill({
         json: {
@@ -3097,6 +3098,7 @@ test("Settings switches providers, preserves saved keys and fits desktop and pho
   const saves: string[] = [];
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
     const req = route.request().postDataJSON();
+    if (req.action === "sessionStatus") return route.fallback();
     if (req.action === "selectScannerProvider") {
       expect(configured[req.provider]).toBe(true);
       provider = req.provider;
@@ -3212,6 +3214,7 @@ test("Gemini key text entry accepts a copied key and only saved providers become
   const secret = "AQ.synthetic.gemini-key-with.punctuation";
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
     const req = route.request().postDataJSON();
+    if (req.action === "sessionStatus") return route.fallback();
     if (req.action === "configureScanner") {
       expect(req.provider).toBe("gemini");
       expect(req.apiKey).toBe(secret);
@@ -3312,6 +3315,7 @@ for (const failure of ["upload", "unconfirmed"] as const)
       "https://script.google.com/macros/s/**/exec",
       async (route) => {
         const req = route.request().postDataJSON();
+        if (req.action === "sessionStatus") return route.fallback();
         if (req.action === "scannerStatus")
           return route.fulfill({
             json: {
@@ -3385,6 +3389,18 @@ for (const failure of ["upload", "unconfirmed"] as const)
     ).toHaveValue("Source receipt purchase 3");
     expect(uploads).toBe(0);
     expect(files.size).toBe(0);
+    await expect(
+      dialog.getByRole("checkbox", {
+        name: "Save source files as receipts",
+        exact: true,
+      }),
+    ).not.toBeChecked();
+    await dialog
+      .getByRole("checkbox", {
+        name: "Save source files as receipts",
+        exact: true,
+      })
+      .check();
     if (failure === "upload") {
       const first = dialog.locator(".import-row").first();
       for (const label of [

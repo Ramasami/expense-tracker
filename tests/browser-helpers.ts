@@ -109,6 +109,16 @@ export async function mockGoogle(page: Page) {
         },
       });
     }
+    if (route.request().postDataJSON().action === "sessionStatus")
+      return route.fulfill({
+        json: {
+          ok: true,
+          result: {
+            configured: false,
+            canConfigure: state.email === "ramasami.official@gmail.com",
+          },
+        },
+      });
     if (route.request().postDataJSON().action === "scannerStatus")
       return route.fulfill({
         json: {
