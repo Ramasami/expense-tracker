@@ -419,7 +419,7 @@ test("Gemini analyzes PDFs/images with an explicit schema and no credentials or 
   assert.equal(calls.length, 1);
   assert.equal(
     calls[0].url,
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
   );
   assert.equal(
     calls[0].options.headers["x-goog-api-key"],
@@ -432,11 +432,11 @@ test("Gemini analyzes PDFs/images with an explicit schema and no credentials or 
   );
   assert.equal(sent.contents[0].parts[1].inlineData.mimeType, "image/png");
   assert.equal(
-    sent.generationConfig.responseFormat.text.mimeType,
-    "APPLICATION_JSON",
+    sent.generationConfig.responseMimeType,
+    "application/json",
   );
   assert.ok(
-    sent.generationConfig.responseFormat.text.schema.required.includes(
+    sent.generationConfig.responseJsonSchema.required.includes(
       "documents",
     ),
   );
@@ -464,6 +464,8 @@ test("Gemini tests use only a fixed prompt; errors and blocked/incomplete output
   const sent = JSON.parse(calls[0].options.payload);
   assert.deepEqual(sent.contents[0].parts, [{ text: "Reply with OK." }]);
   assert.equal(sent.generationConfig.responseFormat, undefined);
+  assert.equal(sent.generationConfig.responseMimeType, undefined);
+  assert.equal(sent.generationConfig.responseJsonSchema, undefined);
   assert.equal(sent.generationConfig.thinkingConfig, undefined);
   assert.equal(sent.systemInstruction, undefined);
   assert.equal(sent.generationConfig.maxOutputTokens, 1024);
@@ -805,7 +807,11 @@ test("persistent Gemini 503s stop after three key-test attempts but document ana
         return true;
       },
     );
-    assert.equal(context.calls.length, scan ? 1 : 3);
+    assert.equal(
+      context.calls.filter((call: any) => call.url.endsWith(":generateContent"))
+        .length,
+      scan ? 1 : 3,
+    );
     assert.equal(sleeps.length, scan ? 0 : 2);
   }
 });
@@ -816,6 +822,12 @@ test("Gemini test respects Retry-After and never retries transport/auth/quota er
     const sleeps: number[] = [];
     context.sandbox.Utilities.sleep = (ms: number) => sleeps.push(ms);
     context.sandbox.UrlFetchApp.fetch = (_url: string, _options: any) => {
+      if (!_url.endsWith(":generateContent"))
+        return {
+          getResponseCode: () => 200,
+          getContentText: () =>
+            JSON.stringify({ supportedGenerationMethods: ["generateContent"] }),
+        };
       context.calls.push({});
       return {
         getResponseCode: () => 503,
@@ -847,4 +859,49 @@ test("Gemini test respects Retry-After and never retries transport/auth/quota er
     /Could not reach Gemini/,
   );
   assert.equal(attempts, 1);
+});
+
+test("Gemini 503 diagnostics distinguish recognized models from missing model configuration without returning secrets", () => {
+  const context = gemini();
+  let calls = 0;
+  context.sandbox.UrlFetchApp.fetch = (url: string) => {
+    calls++;
+    return {
+      getResponseCode: () => (url.includes("?pageSize") ? 200 : 404),
+      getContentText: () =>
+        JSON.stringify({
+          models: [
+            {
+              name: "models/gemini-2.5-flash",
+              supportedGenerationMethods: ["generateContent"],
+            },
+            {
+              name: "private-key text",
+              supportedGenerationMethods: ["generateContent"],
+            },
+          ],
+        }),
+    };
+  };
+  const result = context.sandbox.geminiServiceDiagnosis_({
+    model: "gemini-3.8-flash",
+    key: "never-echo-this-key",
+  });
+  assert.match(result, /metadata HTTP 404/);
+  assert.match(result, /gemini-2.5-flash/);
+  assert.ok(!result.includes("private-key"));
+  assert.ok(!result.includes("never-echo"));
+  assert.equal(calls, 2);
+  context.sandbox.UrlFetchApp.fetch = () => ({
+    getResponseCode: () => 200,
+    getContentText: () =>
+      JSON.stringify({ supportedGenerationMethods: ["generateContent"] }),
+  });
+  assert.match(
+    context.sandbox.geminiServiceDiagnosis_({
+      model: "gemini-3.8-flash",
+      key: "test",
+    }),
+    /metadata, but generation failed/,
+  );
 });

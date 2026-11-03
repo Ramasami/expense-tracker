@@ -335,7 +335,7 @@ const AI_PROVIDERS = {
     name: "Gemini",
     key: "GEMINI_API_KEY",
     model: "GEMINI_MODEL",
-    defaultModel: "gemini-3.8-flash",
+    defaultModel: "gemini-3.6-flash",
   },
 };
 function scannerConfig_(expected) {
@@ -408,9 +408,8 @@ function geminiRequest_(config, parts, prompt, schema) {
     body.systemInstruction = { parts: [{ text: prompt }] };
     if (/^gemini-[34](?:\.|-)/.test(config.model))
       generationConfig.thinkingConfig = { thinkingLevel: "low" };
-    generationConfig.responseFormat = {
-      text: { mimeType: "APPLICATION_JSON", schema: schema },
-    };
+    generationConfig.responseMimeType = "application/json";
+    generationConfig.responseJsonSchema = schema;
   }
   const url =
     "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -488,6 +487,65 @@ function geminiRetryAfter_(response) {
       return Math.max(0, Date.parse(value) - Date.now());
   } catch (_) {}
   return 0;
+}
+
+// Used only after a live key test receives 503. Never echo provider error bodies.
+function geminiServiceDiagnosis_(config) {
+  const base = "https://generativelanguage.googleapis.com/v1beta/models";
+  const options = {
+    headers: { "x-goog-api-key": config.key },
+    muteHttpExceptions: true,
+  };
+  try {
+    const response = UrlFetchApp.fetch(
+      base + "/" + encodeURIComponent(config.model),
+      options,
+    );
+    if (response.getResponseCode() === 200) {
+      const model = JSON.parse(response.getContentText());
+      return Array.isArray(model.supportedGenerationMethods) &&
+        model.supportedGenerationMethods.indexOf("generateContent") >= 0
+        ? "The key can access " +
+            (/^models\/gemini-[a-zA-Z0-9._-]+$/.test(model.name || "")
+              ? model.name.slice(7)
+              : "the configured model") +
+            " metadata, but generation failed."
+        : "The configured model metadata does not advertise generateContent support.";
+    }
+    if (response.getResponseCode() === 404) {
+      const list = UrlFetchApp.fetch(base + "?pageSize=100", options);
+      if (list.getResponseCode() !== 200)
+        return "The configured model was not found for this key (metadata HTTP 404).";
+      const data = JSON.parse(list.getContentText());
+      const names = (data.models || [])
+        .filter(function (model) {
+          return (
+            typeof model.name === "string" &&
+            /^models\/gemini-[a-zA-Z0-9._-]+$/.test(model.name) &&
+            !/(image|tts|audio|embedding|live|robotics)/i.test(model.name) &&
+            Array.isArray(model.supportedGenerationMethods) &&
+            model.supportedGenerationMethods.indexOf("generateContent") >= 0
+          );
+        })
+        .map(function (model) {
+          return model.name.slice(7);
+        })
+        .slice(0, 8);
+      return (
+        "The configured model was not found for this key (metadata HTTP 404)." +
+        (names.length
+          ? " Models advertised by Google: " + names.join(", ") + "."
+          : "")
+      );
+    }
+    return (
+      "Model metadata verification returned HTTP " +
+      response.getResponseCode() +
+      "."
+    );
+  } catch (_) {
+    return "Model metadata could not be verified.";
+  }
 }
 
 function groqRequest_(config, content, prompt, schema) {
@@ -1092,11 +1150,17 @@ function testScannerKey_(actor, expectedProvider) {
     };
   }
   if (config.provider === "gemini") {
-    geminiRequest_(
-      config,
-      [{ text: "Reply with OK." }],
-      "Return a short connection-test acknowledgment.",
-    );
+    try {
+      geminiRequest_(
+        config,
+        [{ text: "Reply with OK." }],
+        "Return a short connection-test acknowledgment.",
+      );
+    } catch (error) {
+      if (/HTTP 503/.test(error.message))
+        throw Error(geminiServiceDiagnosis_(config) + " " + error.message);
+      throw error;
+    }
     return {
       ok: true,
       provider: config.provider,
