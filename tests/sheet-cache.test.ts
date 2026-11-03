@@ -41,6 +41,8 @@ test("screens request only their needed supporting collections", () => {
     "budgets",
   ]);
   assert.equal(screenCollections("Transactions").includes("audit"), false);
+  assert.equal(screenCollections("Investments").includes("holdings"), false);
+  assert.equal(screenCollections("Recovery").includes("holdings"), true);
   assert.equal(
     screenCollections("Transaction details").includes("audit"),
     true,

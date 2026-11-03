@@ -80,3 +80,11 @@ Gemini document scans use `responseMimeType: "application/json"` with `responseJ
 ## Financial review action
 
 `analyzeFinances` uses the same saved selected provider/key and existing owner-plus-Sheet authorization. It requires `confirmed: true`, a strictly bounded aggregate summary and optional risk/horizon preferences. It returns validated read-only spending/saving/investing/debt sections. No document files, Google token or owner identity are forwarded to the model, and no finance writes occur. Separate limits: one request per minute and ten per owner/day, including failed attempts. No automatic retries. Deploy this action by updating the existing stable deployment; saved keys remain in Script properties.
+
+## Optional HDFC Securities connection
+
+Actions `hdfcStatus`, `configureHDFC`, `beginHDFC`, `pendingHDFC`, `completeHDFC`, `hdfcPortfolio` and `disconnectHDFC` run only after existing Google-owner/Sheet authorization. Each actor manages only their own broker credentials in Script properties. A bounded, expiring, single-use login flow and expected HDFC client ID protect token association; completed confirmation is idempotent. Do not configure broker credentials as frontend environment variables.
+
+Only fixed HDFC access-token, read-only user-profile and holdings endpoints are implemented. The profile cURL is GET despite a POST method heading; only HTTP 405 permits a read-only POST fallback. HDFC API errors are sanitized and holdings calls never retry automatically. Broker access tokens/secrets are not returned or logged. Connection changes during a fetch reject its result. Disconnect clears the app’s credentials/flow; broker-side revocation, if desired, remains in HDFC’s portal.
+
+Deploy this updated Code.gs to the existing stable deployment. Keys for AI/receipts remain untouched. Then create an HDFC developer app with the frontend’s `/hdfc-connect/` callback and complete real broker authorization; deployment alone does not connect a trading account.

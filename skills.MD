@@ -19,6 +19,7 @@ Read [README.md](README.md) for user-visible features, [docs/ARCHITECTURE.md](do
 | Task | Start here |
 | --- | --- |
 | Navigation, owner/account selection, transaction form | `app/page.tsx`, `lib/owners.ts` |
+| HDFC broker holdings and per-user connection | `app/hdfc-portfolio.tsx`, `app/hdfc-settings.tsx`, `app/hdfc-connect/`, `lib/hdfc-portfolio.ts`, `apps-script/Code.gs` |
 | Current balances and financial aggregation | `lib/finance.ts`, `app/account-balances.tsx` |
 | Credit card purchases, partial bill settlements | `lib/credit.ts`, `app/credit-bills.tsx` |
 | Loans and principal/interest splits | `lib/loans.ts`, `app/loan-tracker.tsx` |

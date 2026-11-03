@@ -1,6 +1,6 @@
 # Budget Tracker
 
-A shared personal-finance app with Google sign-in, Google Sheets records and private Drive receipts. The website runs on **GitHub Pages**; a small Google Apps Script service manages shared receipts and optional AI document extraction (OpenAI, Gemini, Groq or Claude).
+A shared personal-finance app with Google sign-in, Google Sheets records and private Drive receipts. The website runs on **GitHub Pages**; a small Google Apps Script service manages shared receipts and optional AI document extraction/financial reviews (OpenAI, Gemini, Groq or Claude) and a personal HDFC Securities portfolio connection.
 
 Live site: [Budget Tracker](https://ramasami.github.io/expense-tracker/).
 
@@ -124,7 +124,7 @@ Review category, merchant and timing breakdowns for the selected owner and repor
 
 ### Investments
 
-Track contribution transactions, trends and category allocation. Contributions are cash invested, **not** a live portfolio market valuation. Search and sort allocation categories, then drill into matching transactions. Legacy holdings records remain part of backups/recovery, but this screen is not a live portfolio manager. No automatic broker connection or live-price feed is included.
+Track contribution transactions, trends and category allocation. Contributions are cash invested, **not** a live portfolio market valuation. Search and sort allocation categories, then drill into matching transactions. Legacy holdings records remain part of backups/recovery, but this screen is not a live portfolio manager. An optional HDFC Securities connection shows your signed-in broker portfolio separately; other brokers and live quote streaming are not included.
 
 ### Income & Cash Flow
 
@@ -370,3 +370,21 @@ Only category totals, income/contribution categories, monthly aggregates, loan r
 The menu groups tasks into Everyday, Plan ahead, Understand and Manage, and marks the current screen. Home prioritizes current balances, trends and recent transactions; expand **Cash-flow details** for ledger cash and owner comparisons. All-time cash labels use “All time” rather than an internal cutoff date.
 
 See [the product and UX review](docs/PRODUCT_REVIEW.md) for shipped improvements and prioritized next experiments.
+
+## HDFC Securities portfolio
+
+Open **Settings → HDFC Securities → Connect or manage portfolio**. This optional connection is personal to the signed-in Google email; selecting another owner or All in Sheet filters does not expose another person’s brokerage account.
+
+1. Open [HDFC’s developer portal](https://developer.hdfcsec.com/), choose **Login**, and sign in with your HDFC Securities client ID and password. Create/register your InvestRight API app there. Availability and approval are controlled by HDFC.
+2. Set the app’s redirect URL to the exact **Redirect / callback URL** shown in Budget Tracker Settings. On GitHub Pages this is `https://ramasami.github.io/expense-tracker/hdfc-connect/`. Local and hosted callback URLs differ; use the actual deployed origin/base path.
+3. Enter the API key, API secret and matching HDFC client ID in Budget Tracker, then Save credentials. Do not send passwords, API secrets or tokens in chat.
+4. Choose **Connect HDFC**, finish HDFC login/2FA/consent on HDFC’s site, and explicitly confirm the returned login in Budget Tracker. If HDFC opens another browser context, sign into the same Google account there; the app can recover your pending connection.
+5. Open **Investments** to fetch delivery holdings. Refresh fetches again; search, exchange filters and sorting operate locally without extra broker calls.
+
+The panel shows invested value, closing-price value and computed unrealized P&L. It uses HDFC’s `close_price`, not a streaming/live quote. Missing cost/prices remain unavailable, with partial totals labeled. Cash contributions and brokerage market values are not combined or written into the expense ledger. Positions, intraday trades, orders and a complete mutual-fund portfolio are outside this holdings endpoint’s scope.
+
+Credentials/access tokens are stored only in Apps Script properties under the authenticated Google email; the application API never returns API secrets or broker access tokens. The API key necessarily appears in HDFC’s documented login URL. The short-lived request token is removed from the callback URL, retained only in memory, and exchanged after explicit confirmation using an expiring per-actor flow. The returned broker user ID must match the preconfigured client ID. Refreshing a pending callback requires starting again. Disconnect removes this app’s stored credentials; it does not trade, sell holdings or revoke permissions in HDFC’s own portal.
+
+Holdings stay in page memory only. Offline or failed refreshes label any previously fetched values stale; a reload does not invent or restore broker values from local storage. Provider errors are sanitized; there are no automatic holdings retries or background polling. This integration requires the updated Apps Script deployment. Automated tests use synthetic credentials and mocked HDFC responses; live account validation requires real developer credentials and broker authorization.
+
+Sources: [frontend authorization](https://developer.hdfcsec.com/ir-docs/docs/token_id_fe), [token exchange](https://developer.hdfcsec.com/ir-docs/docs/fetch_access_token_via_api/access_token), [identity](https://developer.hdfcsec.com/ir-docs/docs/user_profile), [holdings](https://developer.hdfcsec.com/ir-docs/docs/holdings). HDFC’s identity page lists POST while its cURL uses GET; the adapter follows GET and tries the documented POST only if GET returns HTTP 405. No trading endpoints are called.

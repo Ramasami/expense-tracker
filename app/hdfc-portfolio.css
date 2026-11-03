@@ -1,0 +1,229 @@
+.hdfc-settings {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+  margin: 24px 0;
+}
+.hdfc-settings > p {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.hdfc-settings summary {
+  cursor: pointer;
+  font-weight: 550;
+  font-size: 13px;
+}
+.hdfc-setup-body {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.hdfc-setup-body p,
+.hdfc-setup-body > a {
+  font-size: 12px;
+}
+.hdfc-credentials {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.hdfc-settings .field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+.hdfc-settings input {
+  width: 100%;
+  min-width: 0;
+}
+.hdfc-connection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.hdfc-error {
+  color: var(--red);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.hdfc-success {
+  color: var(--teal);
+  font-size: 13px;
+}
+.hdfc-portfolio {
+  margin-bottom: 26px;
+  padding: 24px;
+}
+.hdfc-portfolio-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.hdfc-portfolio-heading p {
+  font-size: 11px;
+}
+.hdfc-portfolio-heading h2 {
+  font-size: 22px;
+  margin-top: 8px;
+}
+.hdfc-kicker {
+  color: var(--teal);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  font-weight: 650;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.hdfc-empty {
+  padding: 30px 12px;
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+.hdfc-empty > svg {
+  color: var(--teal);
+}
+.hdfc-empty p {
+  max-width: 340px;
+}
+.hdfc-valuations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+.hdfc-valuations > div {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.hdfc-valuations span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.hdfc-valuations strong {
+  font-size: 24px;
+  letter-spacing: -0.6px;
+  overflow-wrap: anywhere;
+}
+.hdfc-positive {
+  color: var(--teal);
+}
+.hdfc-negative {
+  color: var(--red);
+}
+.hdfc-asof {
+  font-size: 11px;
+  margin: 14px 0 20px;
+}
+.hdfc-list-controls {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+}
+.hdfc-list-controls .field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  font-size: 11px;
+}
+.hdfc-list-controls input,
+.hdfc-list-controls select {
+  width: 100%;
+  min-width: 0;
+}
+.hdfc-holdings {
+  margin: 20px 0 12px;
+}
+.hdfc-holdings article {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 14px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+.hdfc-holdings article > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.hdfc-holdings article > div:last-child {
+  text-align: right;
+  flex-shrink: 0;
+}
+.hdfc-holdings h3 {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.hdfc-holdings span {
+  font-size: 12px;
+}
+.hdfc-holdings small {
+  overflow-wrap: anywhere;
+}
+.hdfc-callback {
+  max-width: 620px;
+  margin: 60px auto;
+  padding: 20px;
+}
+.hdfc-callback .card {
+  padding: 28px;
+  display: grid;
+  gap: 20px;
+}
+.hdfc-callback h1 {
+  font-size: 26px;
+}
+@media (max-width: 600px) {
+  .hdfc-portfolio {
+    padding: 18px;
+  }
+  .hdfc-valuations {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .hdfc-valuations > div:last-child {
+    grid-column: 1/-1;
+  }
+  .hdfc-valuations strong {
+    font-size: 21px;
+  }
+  .hdfc-list-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .hdfc-list-controls > label:first-child {
+    grid-column: 1/-1;
+  }
+  .hdfc-holdings article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .hdfc-holdings article > div:last-child {
+    flex-shrink: 1;
+  }
+  .hdfc-portfolio-heading > button span {
+    display: none;
+  }
+  .hdfc-settings input,
+  .hdfc-list-controls input,
+  .hdfc-list-controls select {
+    font-size: 16px;
+  }
+}
+
+.hdfc-contribution-heading {
+  margin: 30px 0 20px;
+}
+.hdfc-contribution-heading p {
+  font-size: 12px;
+}

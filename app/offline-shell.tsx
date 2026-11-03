@@ -7,7 +7,11 @@ export default function OfflineShell() {
       process.env.NODE_ENV !== "production"
     )
       return;
-    const url = new URL("./sw.js", window.location.href);
+    if (window.location.pathname.endsWith("/hdfc-connect/")) return;
+    const url = new URL(
+      (process.env.NEXT_PUBLIC_APP_BASE_PATH || "") + "/sw.js",
+      window.location.origin,
+    );
     navigator.serviceWorker
       .register(url.pathname, { scope: new URL("./", url).pathname })
       .catch(() => {

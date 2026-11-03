@@ -88,6 +88,27 @@ export async function mockGoogle(page: Page) {
     });
   });
   await page.route("https://script.google.com/macros/s/**/exec", (route) => {
+    if (
+      ["hdfcStatus", "hdfcPortfolio"].includes(
+        route.request().postDataJSON().action,
+      )
+    ) {
+      const status = {
+        configured: false,
+        connected: false,
+        clientHint: "",
+        connectedAt: null,
+      };
+      return route.fulfill({
+        json: {
+          ok: true,
+          result:
+            route.request().postDataJSON().action === "hdfcStatus"
+              ? status
+              : { status, holdings: [], fetchedAt: null },
+        },
+      });
+    }
     if (route.request().postDataJSON().action === "scannerStatus")
       return route.fulfill({
         json: {

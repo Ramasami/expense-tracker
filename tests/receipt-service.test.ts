@@ -161,8 +161,15 @@ test("new receipt users require both active owner membership and access to the a
   }
 });
 
-test("AI service actions reject accounts without owner mapping or Sheet access", () => {
+test("AI and broker actions reject accounts without owner mapping or Sheet access", () => {
   for (const action of [
+    "hdfcStatus",
+    "pendingHDFC",
+    "configureHDFC",
+    "beginHDFC",
+    "completeHDFC",
+    "disconnectHDFC",
+    "hdfcPortfolio",
     "scannerStatus",
     "analyzeDocuments",
     "selectScannerProvider",
@@ -171,7 +178,13 @@ test("AI service actions reject accounts without owner mapping or Sheet access",
   ]) {
     const denied = service("outsider@example.com");
     assert.equal(denied.run(action).ok, false);
-    assert.ok(!denied.calls.some((url) => url.includes("api.openai.com")));
+    assert.ok(
+      !denied.calls.some(
+        (url) =>
+          url.includes("api.openai.com") ||
+          url.includes("developer.hdfcsec.com"),
+      ),
+    );
     const noSheet = service("new@example.com", undefined, {
       email: "new@example.com",
       sheetAccess: false,

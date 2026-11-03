@@ -97,7 +97,6 @@ export function screenCollections(page: string): Collection[] {
       "settings",
       "audit",
     ],
-    Investments: ["holdings"],
     Budgets: ["budgets"],
     "Financial Goals": ["goals"],
     "Recurring Transactions": ["recurring"],

@@ -2,7 +2,7 @@
 
 ## Runtime and deployment
 
-The website is a static Next.js export hosted on GitHub Pages. Client components implement navigation and local UI state. Direct authenticated Google Sheets requests read and write finance data. The existing Google Apps Script service handles shared receipt ownership and optional OpenAI/Gemini/Groq document analysis. It is not a general financial-write backend.
+The website is a static Next.js export hosted on GitHub Pages. Client components implement navigation and local UI state. Direct authenticated Google Sheets requests read and write finance data. The existing Google Apps Script service handles shared receipt ownership and optional AI document/financial analysis and per-user HDFC portfolio access. It is not a general financial-write backend.
 
 `app/page.tsx` coordinates screens, session/owner/account scope, lazy collection loading, dialogs, write confirmation, cache state and cross-tab refresh. Smaller screen components live under `app/`. Finance rules and Google integrations live under `lib/`. Read the generated context for the current file/export inventory.
 
@@ -132,3 +132,17 @@ The authenticated `analyzeFinances` Apps Script action accepts a bounded aggrega
 Numeric charts and the savings calculator come from deterministic facts, not AI-authored numbers. The model is instructed to distinguish card settlements, loan principal, one-off income and investment contributions, flag missing records, and make only conditional educational investment suggestions without individual securities, live rates/tax rules or guaranteed returns. Automated tests use synthetic data and mocked providers; they do not send household records to an AI.
 
 Navigation groups reorganize existing screens without changing their routes, scopes or permissions. The current screen uses aria-current. Dashboard ledger/owner comparison cards remain available in a native Cash-flow details disclosure, reducing initial page length without changing calculations or collection requests. Internal all-time sentinel dates are not displayed as real statement cutoffs.
+
+## HDFC Securities broker connection
+
+`app/hdfc-settings.tsx` lazily loads per-user connection status only when expanded. Credentials are submitted to the authenticated Apps Script service and fields clear after submission. `lib/hdfc-portfolio.ts` validates response shapes and restricts returned login URLs to HDFC’s fixed HTTPS origin/path. Configurations are keyed by the verified Google actor email, not a caller-supplied owner identifier. Existing active-owner and real Sheet-access checks run before all broker actions. API responses expose only configured/connected status and a masked client hint.
+
+Login follows HDFC’s hosted login/2FA flow. The browser stores only a random pending flow ID in sessionStorage. The server binds the flow to the actor/config revision for 15 minutes; only an explicitly confirmed matching flow may exchange a request token. It validates the resulting token with the read-only profile endpoint against the client ID saved before login. A short lock claims the flow before the network exchange and rechecks config/revision before storing the token. Completed flows support idempotent confirmation after a lost response; failed exchanges require a fresh login. Broker secrets and access tokens never enter Sheet data, browser persistence, logs, AI prompts or returned payloads.
+
+The separate static `/hdfc-connect/` route sets no-referrer/noindex metadata, strips request-token query parameters before Google validation, and requires user confirmation. It does not register another service worker; the root app shell uses an explicit deployment base path. Callback pages are not cached by the app’s worker.
+
+`hdfcPortfolio` calls only the fixed holdings URL with the actor’s saved token, sanitizes and bounds holdings, and rechecks the connection after fetching so disconnect/config changes cannot return stale-authority results. It does not write any financial record. The panel is deliberately personal rather than an All-owner portfolio. Its filters run in memory; no polling or persistent broker-value cache is added. Failures leave only clearly stale prior in-memory values. Prices are closing prices from the response; missing prices/costs are null and partial totals are labeled. Profile GET has a narrowly scoped HTTP-405 fallback to documented POST because HDFC’s method heading and cURL conflict. No order, trading, funds-transfer or arbitrary URL forwarding capabilities exist.
+
+The Investments screen no longer requests the unused legacy Holdings Sheet collection; legacy holdings remain in recovery/backups. A confirmed HDFC HTTP 401 removes the expired broker token while retaining developer credentials for reconnecting.
+
+For installed mobile apps that open HDFC in a separate browser context, the authenticated `pendingHDFC` action can recover only that actor’s unexpired pending flow ID. This reveals no broker credentials and never exchanges a token automatically. The same explicit confirmation and expected broker-client-ID verification apply; no caller-selected actor or arbitrary pending flow can be resumed.

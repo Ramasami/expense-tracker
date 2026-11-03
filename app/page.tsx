@@ -1,5 +1,7 @@
 "use client";
 import ReleaseHistory from "./release-history";
+import HDFCSettings from "./hdfc-settings";
+import HDFCPortfolioView from "./hdfc-portfolio";
 import ListControls from "./list-controls";
 import PageHelp from "./page-help";
 import { useScrollToolbar } from "./use-scroll-toolbar";
@@ -2898,41 +2900,62 @@ export default function Home() {
                   </div>
                 </section>
               )}
+              {page === "Investments" && (
+                <HDFCPortfolioView
+                  disabled={stale || syncing || saving}
+                  ownerName={
+                    googleSession?.ownerName ||
+                    googleSession?.name ||
+                    "Your account"
+                  }
+                  onSetup={() => navigate("Settings")}
+                />
+              )}
               {[
                 "Expense Analytics",
                 "Investments",
                 "Income & Cash Flow",
               ].includes(page) && (
                 <>
-                  <div className="stats-grid">
-                    {card(
-                      "Total income",
-                      stats.income,
-                      previous.income,
-                      "var(--teal)",
-                      "Income",
-                    )}
-                    {card(
-                      "Total expenses",
-                      stats.expense,
-                      previous.expense,
-                      "var(--red)",
-                      "Expense",
-                    )}
-                    {card(
-                      "Contributions",
-                      stats.investment,
-                      previous.investment,
-                      "var(--purple)",
-                      "Investment",
-                    )}
-                    {card(
-                      "Savings rate",
-                      stats.savings,
-                      previous.savings,
-                      "var(--blue)",
-                    )}
-                  </div>
+                  {page === "Investments" ? (
+                    <div className="hdfc-contribution-heading">
+                      <h2>Sheet contributions</h2>
+                      <p>
+                        {money(stats.investment)} contributed in the selected
+                        owner, account and period.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="stats-grid">
+                      {card(
+                        "Total income",
+                        stats.income,
+                        previous.income,
+                        "var(--teal)",
+                        "Income",
+                      )}
+                      {card(
+                        "Total expenses",
+                        stats.expense,
+                        previous.expense,
+                        "var(--red)",
+                        "Expense",
+                      )}
+                      {card(
+                        "Contributions",
+                        stats.investment,
+                        previous.investment,
+                        "var(--purple)",
+                        "Investment",
+                      )}
+                      {card(
+                        "Savings rate",
+                        stats.savings,
+                        previous.savings,
+                        "var(--blue)",
+                      )}
+                    </div>
+                  )}
                   <div className="dashboard-grid">
                     <section className="card">
                       <div className="card-heading">
@@ -2956,7 +2979,7 @@ export default function Home() {
                       <div className="card-heading">
                         <h2>
                           {page === "Investments"
-                            ? "Investment allocation"
+                            ? "Contribution allocation"
                             : "Category breakdown"}
                         </h2>
                       </div>
@@ -3316,6 +3339,7 @@ export default function Home() {
                     )}
                   </div>
                   <ReleaseHistory />
+                  <HDFCSettings disabled={stale || syncing || saving} />
                   <ScannerSettings disabled={stale || syncing || saving} />
                   <h3>Display & defaults</h3>
                   <label>

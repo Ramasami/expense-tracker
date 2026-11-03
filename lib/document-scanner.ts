@@ -58,10 +58,11 @@ export async function aiService(
   });
   if (!response.ok)
     throw Error(
-      "The scanner service is unavailable. Try again when connected.",
+      "The connection service is unavailable. Try again when connected.",
     );
   const data = await response.json();
-  if (!data.ok) throw Error(data.error || "Document analysis failed.");
+  if (!data.ok)
+    throw Error(data.error || "The service could not complete this request.");
   return data.result;
 }
 export async function scannerStatus(): Promise<{

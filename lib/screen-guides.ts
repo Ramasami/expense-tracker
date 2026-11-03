@@ -232,17 +232,18 @@ export const screenGuides: Record<string, ScreenGuide> = {
     },
   },
   Investments: {
-    intro: "Review investment contributions and their category allocation.",
+    intro:
+      "View your connected HDFC holdings and explore Sheet investment contributions.",
     steps: [
       step(
         "Separate contributions from value",
-        "Investment transactions record cash contributed. Contribution totals are not live market values.",
+        "The HDFC section shows your signed-in broker connection at returned closing prices. Sheet contribution charts below use the selected owner, account and dates; contributions are not portfolio value.",
         [
           "Contribution: cash invested",
-          "Holding: recorded value",
-          "No automatic price feed",
+          "HDFC: broker holdings",
+          "Connect in Settings",
         ],
-        ".stats-grid",
+        ".hdfc-portfolio",
         "Investment overview",
       ),
       step(

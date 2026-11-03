@@ -41,6 +41,18 @@ export default function PrivacyPage() {
         not sell Google user data, use it for advertising, or transmit it to an
         analytics service.
       </p>
+      <h2>Optional HDFC Securities connection</h2>
+      <p>
+        When you connect HDFC, the authenticated service stores your developer
+        credentials and broker access token in server-side Script properties
+        under your Google email. Broker login and two-factor authentication take
+        place on HDFC’s site. The service verifies your HDFC client ID and reads
+        holdings on request; it does not place orders. Broker secrets and access
+        tokens are not returned to the browser or included in Sheet records, AI
+        prompts or offline backups. Portfolio values remain in page memory.
+        Disconnect removes this app’s stored connection; HDFC’s own permissions
+        are managed there.
+      </p>
       <h2>Optional AI document scanning</h2>
       <p>
         The service owner can choose OpenAI, Gemini, Groq or Claude and save

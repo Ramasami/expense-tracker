@@ -16,6 +16,8 @@ function doPost(e) {
     if (req.action !== "analyzeDocuments" && req.action !== "analyzeFinances" && e.postData.contents.length > 16384)
       throw Error("Invalid request.");
     const actor = authenticate_(req.token);
+    if (["hdfcStatus", "pendingHDFC", "configureHDFC", "beginHDFC", "completeHDFC", "disconnectHDFC", "hdfcPortfolio"].indexOf(req.action) >= 0)
+      return json_({ok:true,result:hdfcDispatch_(req,actor)});
     if (req.action === "scannerStatus")
       return json_({ ok: true, result: scannerStatus_(actor) });
     if (req.action === "selectScannerProvider")
@@ -1552,4 +1554,351 @@ function analyzeFinances_(req, actor) {
     generatedAt: new Date().toISOString(),
     model: config.model,
   };
+}
+
+/* Read-only HDFC portfolio. Each verified Google email owns its own connection. */
+function hdfcKeys_(actor) {
+  return { config: "HDFC_CONNECTION:" + actor, flow: "HDFC_FLOW:" + actor };
+}
+function hdfcConfig_(actor) {
+  const raw = PropertiesService.getScriptProperties().getProperty(
+    hdfcKeys_(actor).config,
+  );
+  return raw ? JSON.parse(raw) : null;
+}
+function hdfcStatus_(actor) {
+  const c = hdfcConfig_(actor);
+  return {
+    configured: !!c,
+    connected: !!(c && c.accessToken),
+    clientHint: c ? "••••" + c.clientId.slice(-4) : "",
+    connectedAt: (c && c.connectedAt) || null,
+  };
+}
+function hdfcCall_(path, apiKey, accessToken, body) {
+  const options = {
+    method: body ? "post" : "get",
+    headers: {
+      "User-Agent": "BudgetTracker/1.0",
+      ...(accessToken ? { Authorization: accessToken } : {}),
+    },
+    muteHttpExceptions: true,
+    followRedirects: false,
+  };
+  if (body) {
+    options.contentType = "application/json";
+    options.payload = JSON.stringify(body);
+  }
+  let response;
+  try {
+    response = UrlFetchApp.fetch(
+      "https://developer.hdfcsec.com" +
+        path +
+        (path.indexOf("?") >= 0 ? "&" : "?") +
+        "api_key=" +
+        encodeURIComponent(apiKey),
+      options,
+    );
+  } catch (_) {
+    throw Error("HDFC could not be reached. Retry when connected.");
+  }
+  const code = response.getResponseCode();
+  // The profile page documents POST while its cURL uses GET; retry only a
+  // method-not-allowed response on this read-only identity endpoint.
+  if (code === 405 && path === "/oapi/v3/user/profile" && !body)
+    return hdfcCall_(path, apiKey, accessToken, {});
+  if (code === 401) throw Error("HDFC session expired. Connect HDFC again.");
+  if (code === 403)
+    throw Error("HDFC access denied. Check your developer app and reconnect.");
+  if (code === 429)
+    throw Error("HDFC is limiting requests. Wait before refreshing.");
+  if (code !== 200)
+    throw Error("HDFC request failed (HTTP " + code + "). Retry later.");
+  let result;
+  try {
+    const raw = response.getContentText();
+    if (raw.length > 2000000) throw Error();
+    result = JSON.parse(raw);
+  } catch (_) {
+    throw Error("HDFC returned an unreadable response.");
+  }
+  if (
+    !result ||
+    typeof result !== "object" ||
+    (result.status !== undefined && result.status !== "success")
+  )
+    throw Error("HDFC did not confirm this request. Check your connection.");
+  return result;
+}
+function hdfcNumber_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "number" && typeof value !== "string")
+    throw Error("HDFC returned an invalid holding value.");
+  if (typeof value === "string" && !/^\d+(\.\d+)?$/.test(value.trim()))
+    throw Error("HDFC returned an invalid holding value.");
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 1e14)
+    throw Error("HDFC returned an invalid holding value.");
+  return n;
+}
+function hdfcHoldings_(data) {
+  if (!Array.isArray(data) || data.length > 2000)
+    throw Error("HDFC returned an invalid holdings list.");
+  const text = (value, max) => String(value || "").slice(0, max);
+  const round = (n) => (n === null ? null : Math.round(n * 100) / 100);
+  return data.map((row) => {
+    if (!row || typeof row !== "object")
+      throw Error("HDFC returned an invalid holding.");
+    const quantity = hdfcNumber_(row.quantity);
+    if (quantity === null)
+      throw Error("HDFC returned a holding without its quantity.");
+    const averagePrice = hdfcNumber_(row.average_price),
+      closePrice = hdfcNumber_(row.close_price);
+    const supplied = hdfcNumber_(row.investment_value);
+    const investedValue = round(
+      supplied !== null
+        ? supplied
+        : averagePrice !== null
+          ? quantity * averagePrice
+          : null,
+    );
+    const closingValue = round(
+      closePrice === null ? null : quantity * closePrice,
+    );
+    if (
+      (investedValue !== null && investedValue > 1e14) ||
+      (closingValue !== null && closingValue > 1e14)
+    )
+      throw Error("HDFC returned an invalid valuation.");
+    return {
+      name: text(
+        row.company_name || row.isin || row.security_id || "Unnamed holding",
+        200,
+      ),
+      isin: text(row.isin, 40),
+      exchange: text(row.exchange, 20),
+      sector: text(row.sector_name, 120),
+      quantity,
+      averagePrice,
+      closePrice,
+      investedValue,
+      closingValue,
+      unrealized: round(
+        closingValue === null || investedValue === null
+          ? null
+          : closingValue - investedValue,
+      ),
+    };
+  });
+}
+function hdfcDispatch_(req, actor) {
+  const props = PropertiesService.getScriptProperties(),
+    keys = hdfcKeys_(actor);
+  if (req.action === "hdfcStatus") return hdfcStatus_(actor);
+  if (req.action === "pendingHDFC") {
+    const flow = JSON.parse(props.getProperty(keys.flow) || "null"),
+      config = hdfcConfig_(actor);
+    return {
+      flowId:
+        flow &&
+        config &&
+        flow.state === "pending" &&
+        flow.expires > Date.now() &&
+        flow.config === config.revision
+          ? flow.id
+          : null,
+    };
+  }
+  if (req.action === "configureHDFC") {
+    const clean = (value, min, max) => {
+      if (typeof value !== "string")
+        throw Error("Enter valid HDFC credentials.");
+      const s = value.trim();
+      if (s.length < min || s.length > max || !/^[\x21-\x7e]+$/.test(s))
+        throw Error("Enter valid HDFC credentials.");
+      return s;
+    };
+    const config = {
+      apiKey: clean(req.apiKey, 4, 512),
+      apiSecret: clean(req.apiSecret, 4, 512),
+      clientId: clean(req.clientId, 1, 100),
+      revision: Utilities.getUuid(),
+    };
+    if (!/^[A-Za-z0-9_-]+$/.test(config.clientId))
+      throw Error("Enter your HDFC Securities client ID.");
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) throw Error("HDFC setup is busy. Retry.");
+    try {
+      props.setProperty(keys.config, JSON.stringify(config));
+      props.deleteProperty(keys.flow);
+    } finally {
+      lock.releaseLock();
+    }
+    return hdfcStatus_(actor);
+  }
+  if (req.action === "disconnectHDFC") {
+    if (req.confirmed !== true)
+      throw Error("Confirm disconnecting HDFC first.");
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) throw Error("HDFC setup is busy. Retry.");
+    try {
+      props.deleteProperty(keys.config);
+      props.deleteProperty(keys.flow);
+    } finally {
+      lock.releaseLock();
+    }
+    return hdfcStatus_(actor);
+  }
+  const config = hdfcConfig_(actor);
+  if (req.action === "hdfcPortfolio" && (!config || !config.accessToken))
+    return { status: hdfcStatus_(actor), holdings: [], fetchedAt: null };
+  if (!config)
+    throw Error("Add your HDFC developer credentials in Settings first.");
+  if (req.action === "beginHDFC") {
+    const flow = {
+      id: Utilities.getUuid(),
+      expires: Date.now() + 15 * 60000,
+      config: config.revision,
+      state: "pending",
+    };
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) throw Error("HDFC connection is busy. Retry.");
+    try {
+      if (JSON.stringify(hdfcConfig_(actor)) !== JSON.stringify(config))
+        throw Error("HDFC setup changed. Retry.");
+      props.setProperty(keys.flow, JSON.stringify(flow));
+    } finally {
+      lock.releaseLock();
+    }
+    return {
+      loginUrl:
+        "https://developer.hdfcsec.com/oapi/v1/login?api_key=" +
+        encodeURIComponent(config.apiKey),
+      flowId: flow.id,
+    };
+  }
+  if (req.action === "completeHDFC") {
+    if (
+      req.confirmed !== true ||
+      typeof req.requestToken !== "string" ||
+      !req.requestToken ||
+      req.requestToken.length > 4096 ||
+      /[\s\x00-\x1f]/.test(req.requestToken)
+    )
+      throw Error("Confirm a valid HDFC login first.");
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) throw Error("HDFC connection is busy. Retry.");
+    let flow;
+    try {
+      flow = JSON.parse(props.getProperty(keys.flow) || "null");
+      if (!flow || flow.id !== req.flowId || flow.expires < Date.now())
+        throw Error("HDFC connection expired. Start again from Settings.");
+      if (flow.state === "completed" && config.accessToken)
+        return hdfcStatus_(actor);
+      if (flow.state !== "pending" || flow.config !== config.revision)
+        throw Error(
+          "HDFC connection changed or is already being processed. Start again.",
+        );
+      flow.state = "processing";
+      props.setProperty(keys.flow, JSON.stringify(flow));
+    } finally {
+      lock.releaseLock();
+    }
+    const token = hdfcCall_(
+      "/oapi/v1/access-token?request_token=" +
+        encodeURIComponent(req.requestToken),
+      config.apiKey,
+      null,
+      { apiSecret: config.apiSecret },
+    );
+    if (
+      typeof token.accessToken !== "string" ||
+      token.accessToken.length < 10 ||
+      token.accessToken.length > 4096 ||
+      /[\s\x00-\x1f]/.test(token.accessToken)
+    )
+      throw Error("HDFC did not return a valid access token. Connect again.");
+    // Verify the broker's accepted identity against the client ID entered before login.
+    // The official profile cURL uses GET; no trading/order endpoints are implemented.
+    const profile = hdfcCall_(
+      "/oapi/v3/user/profile",
+      config.apiKey,
+      token.accessToken,
+    );
+    if (
+      !Array.isArray(profile.data) ||
+      profile.data.length !== 1 ||
+      String(profile.data[0].user_id).toLowerCase() !==
+        config.clientId.toLowerCase()
+    )
+      throw Error(
+        "This HDFC login does not match the configured client ID. Connect the correct account.",
+      );
+    if (!lock.tryLock(5000))
+      throw Error("HDFC connection is busy. Start again.");
+    try {
+      const current = JSON.parse(props.getProperty(keys.flow) || "null");
+      if (
+        !current ||
+        current.id !== flow.id ||
+        current.state !== "processing" ||
+        hdfcConfig_(actor)?.revision !== flow.config
+      )
+        throw Error("HDFC setup changed during login. Start again.");
+      props.setProperty(
+        keys.config,
+        JSON.stringify({
+          ...config,
+          accessToken: token.accessToken,
+          connectedAt: new Date().toISOString(),
+        }),
+      );
+      props.setProperty(
+        keys.flow,
+        JSON.stringify({
+          id: flow.id,
+          expires: flow.expires,
+          state: "completed",
+        }),
+      );
+    } finally {
+      lock.releaseLock();
+    }
+    return hdfcStatus_(actor);
+  }
+  if (req.action === "hdfcPortfolio") {
+    let response;
+    try {
+      response = hdfcCall_(
+        "/oapi/v1/portfolio/holdings",
+        config.apiKey,
+        config.accessToken,
+      );
+    } catch (error) {
+      if (error.message === "HDFC session expired. Connect HDFC again.") {
+        const lock = LockService.getScriptLock();
+        if (lock.tryLock(5000)) {
+          try {
+            if (JSON.stringify(hdfcConfig_(actor)) === JSON.stringify(config)) {
+              const next = { ...config };
+              delete next.accessToken;
+              delete next.connectedAt;
+              props.setProperty(keys.config, JSON.stringify(next));
+            }
+          } finally {
+            lock.releaseLock();
+          }
+        }
+      }
+      throw error;
+    }
+    if (JSON.stringify(hdfcConfig_(actor)) !== JSON.stringify(config))
+      throw Error("HDFC connection changed. Refresh again.");
+    return {
+      status: hdfcStatus_(actor),
+      holdings: hdfcHoldings_(response.data),
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+  throw Error("Unknown HDFC action.");
 }
