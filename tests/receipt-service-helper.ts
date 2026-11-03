@@ -12,6 +12,8 @@ export async function mockReceiptService(
     beforeDownload?: () => Promise<void>;
     onDownload?: () => void;
     failName?: string;
+    // WebKit may omit File request bodies from its automation protocol.
+    uploadBytes?: Record<string, Buffer>;
   } = {},
 ) {
   const files = new Map<string, any>();
@@ -65,6 +67,16 @@ export async function mockReceiptService(
   await page.route(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=*",
     async (route) => {
+      // WebKit exposes the binary PUT's CORS preflight to route handlers.
+      if (route.request().method() === "OPTIONS")
+        return route.fulfill({
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "PUT, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+          },
+        });
       const id = new URL(route.request().url()).searchParams.get("upload_id")!;
       const file = files.get(id);
       if (file.name === options.failName)
@@ -72,10 +84,18 @@ export async function mockReceiptService(
           status: 503,
           json: { error: { message: "Upload temporarily unavailable" } },
         });
-      file.bytes = route.request().postDataBuffer();
+      file.bytes =
+        route.request().postDataBuffer() || options.uploadBytes?.[file.name];
+      if (!file.bytes)
+        throw Error(
+          "The test browser omitted this upload body; provide its synthetic uploadBytes fixture.",
+        );
       file.size = file.bytes.length;
       options.onUpload?.(file);
-      return route.fulfill({ json: { id } });
+      return route.fulfill({
+        headers: { "Access-Control-Allow-Origin": "*" },
+        json: { id },
+      });
     },
   );
   return files;

@@ -1123,7 +1123,7 @@ pre {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
 .field {
@@ -3386,7 +3386,7 @@ select:disabled {
   min-width: 0;
 }
 
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   html {
     touch-action: pan-x pan-y;
   }
@@ -3694,5 +3694,56 @@ select:disabled {
 @media (max-width: 360px) {
   .import-row .import-fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Keep every dialog inside the viewport, including iOS date controls. */
+.modal-overlay {
+  touch-action: pan-y;
+}
+.modal {
+  min-width: 0;
+  max-inline-size: 100%;
+  max-height: min(90dvh, 90vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+.modal > form,
+.modal .form-grid,
+.modal .field {
+  min-width: 0;
+  max-width: 100%;
+}
+.modal .field input,
+.modal .field select,
+.modal .field textarea {
+  display: block;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+.modal input[type="date"] {
+  appearance: none;
+  -webkit-appearance: none;
+  min-inline-size: 0;
+  text-align: left;
+}
+.modal input::-webkit-date-and-time-value {
+  min-height: 1.4em;
+  text-align: left;
+}
+@media (max-width: 1024px), (any-pointer: coarse) {
+  .modal input:not([type="checkbox"]),
+  .modal select,
+  .modal textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+}
+@media (max-width: 700px) {
+  .modal {
+    max-height: min(92dvh, 92vh);
   }
 }

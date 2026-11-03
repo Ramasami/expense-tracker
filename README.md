@@ -349,3 +349,6 @@ Confirming an AI import also saves each transaction’s source image or PDF in *
 
 
 Import previews show persistent labels for every editable field, with a two-column layout that adapts to narrow phones. AI review notes stay collapsed; source receipt names remain visible. Confirmed rows become compact, labeled summaries instead of dimmed disabled forms. When every row is saved, the summary shows the imported total and the footer offers Close without an empty import action or another confirmation checkbox. Unconfirmed rows retain their locked fields and exact-operation retry behavior.
+
+
+Transaction dialogs constrain date/text/select controls to their grid cells and viewport, with readable 16 px inputs on phones/tablets to prevent focus zoom. Horizontal panning is clipped; long forms scroll vertically inside the locked overlay. Touch zoom guards use any coarse pointer or touch capability, including tablets with a mouse/trackpad primary pointer, and capture cancelable pinch/Safari gesture/double-click events. Single-finger vertical scrolling remains enabled. Browser/OS accessibility zoom overrides remain outside app control.

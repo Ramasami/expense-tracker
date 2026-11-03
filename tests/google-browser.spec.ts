@@ -959,6 +959,16 @@ test("touch devices keep a fixed viewport and block pinch gestures without block
     hasTouch: true,
   });
   const page = await context.newPage();
+  await page.addInitScript(() => {
+    const match = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const result = match(query);
+      // A touch tablet can report a mouse/trackpad as its primary pointer.
+      if (query === "(pointer: coarse)")
+        Object.defineProperty(result, "matches", { value: false });
+      return result;
+    };
+  });
   await mockGoogle(page);
   await login(page);
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
@@ -972,39 +982,61 @@ test("touch devices keep a fixed viewport and block pinch gestures without block
     "font-size",
     "16px",
   );
+  const dialog = page.getByRole("dialog", {
+    name: "Add transaction",
+    exact: true,
+  });
+  await page
+    .getByLabel("Description / merchant", { exact: true })
+    .fill(
+      "A long synthetic merchant description that must stay inside the transaction form",
+    );
+  for (const width of [320, 390, 768, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    expect(
+      await dialog
+        .locator("input:not([type=hidden]), select, textarea")
+        .evaluateAll((fields) =>
+          fields.every((el) => {
+            const r = el.getBoundingClientRect(),
+              modal = el.closest(".modal")!.getBoundingClientRect();
+            return (
+              r.left >= modal.left &&
+              r.right <= modal.right &&
+              (el.getAttribute("type") === "checkbox" ||
+                parseFloat(getComputedStyle(el).fontSize) >= 16)
+            );
+          }),
+        ),
+    ).toBe(true);
+    await expect(page.locator("body")).toHaveCSS("position", "fixed");
+    await page.getByLabel("Date", { exact: true }).focus();
+    expect(await page.evaluate(() => visualViewport?.scale)).toBe(1);
+    await dialog.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    if (width === 390 || width === 768)
+      await dialog.screenshot({ path: `work/transaction-fit-${width}.png` });
+  }
   const gestures = await page.evaluate(() => {
-    const pinch = new TouchEvent("touchmove", {
-      cancelable: true,
-      bubbles: true,
-      touches: [
-        new Touch({
-          identifier: 1,
+    // WebKit does not expose constructible Touch/TouchEvent on every host.
+    // Dispatch cancelable DOM events with the touch list consumed by the handler.
+    function move(count: number) {
+      const event = new Event("touchmove", { cancelable: true, bubbles: true });
+      Object.defineProperty(event, "touches", {
+        value: Array.from({ length: count }, (_, identifier) => ({
+          identifier,
           target: document.body,
-          clientX: 10,
-          clientY: 20,
-        }),
-        new Touch({
-          identifier: 2,
-          target: document.body,
-          clientX: 40,
-          clientY: 20,
-        }),
-      ],
-    });
-    document.dispatchEvent(pinch);
-    const single = new TouchEvent("touchmove", {
-      cancelable: true,
-      bubbles: true,
-      touches: [
-        new Touch({
-          identifier: 1,
-          target: document.body,
-          clientX: 10,
-          clientY: 20,
-        }),
-      ],
-    });
-    document.dispatchEvent(single);
+        })),
+      });
+      document.dispatchEvent(event);
+      return event;
+    }
+    const pinch = move(2);
+    const single = move(1);
     const doubleTap = new MouseEvent("dblclick", {
       cancelable: true,
       bubbles: true,
@@ -3251,14 +3283,21 @@ for (const failure of ["upload", "unconfirmed"] as const)
     const { f, state } = await mockGoogle(page);
     let uploads = 0,
       downloads = 0;
+    const sourcePng = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const sourcePdf = Buffer.from("%PDF-synthetic-test");
     const files = await mockReceiptService(page, {
       onUpload: () => uploads++,
       onDownload: () => downloads++,
+      uploadBytes: { "source.png": sourcePng, "statement.pdf": sourcePdf },
     });
     let failUpload = failure === "upload";
     await page.route(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=*",
       async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
         if (failUpload) {
           failUpload = false;
           return route.fulfill({
@@ -3330,15 +3369,12 @@ for (const failure of ["upload", "unconfirmed"] as const)
       {
         name: "source.png",
         mimeType: "image/png",
-        buffer: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
-          "base64",
-        ),
+        buffer: sourcePng,
       },
       {
         name: "statement.pdf",
         mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-synthetic-test"),
+        buffer: sourcePdf,
       },
     ]);
     await dialog

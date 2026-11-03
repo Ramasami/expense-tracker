@@ -2,25 +2,29 @@
 import { useEffect } from "react";
 export default function TouchViewport() {
   useEffect(() => {
-    const coarse = window.matchMedia("(pointer: coarse)");
+    const touch = window.matchMedia("(any-pointer: coarse)");
+    const isTouchDevice = () => touch.matches || navigator.maxTouchPoints > 0;
     const gesture = (event: Event) => {
-      if (coarse.matches && event.cancelable) event.preventDefault();
+      if (isTouchDevice() && event.cancelable) event.preventDefault();
     };
     const pinch = (event: TouchEvent) => {
-      if (coarse.matches && event.touches.length > 1 && event.cancelable)
+      if (isTouchDevice() && event.touches.length > 1 && event.cancelable)
         event.preventDefault();
     };
-    document.addEventListener("dblclick", gesture, { passive: false });
-    document.addEventListener("gesturestart", gesture, { passive: false });
-    document.addEventListener("gesturechange", gesture, { passive: false });
-    document.addEventListener("touchstart", pinch, { passive: false });
-    document.addEventListener("touchmove", pinch, { passive: false });
+    const options = { passive: false, capture: true };
+    document.addEventListener("dblclick", gesture, options);
+    document.addEventListener("gesturestart", gesture, options);
+    document.addEventListener("gesturechange", gesture, options);
+    document.addEventListener("gestureend", gesture, options);
+    document.addEventListener("touchstart", pinch, options);
+    document.addEventListener("touchmove", pinch, options);
     return () => {
-      document.removeEventListener("dblclick", gesture);
-      document.removeEventListener("gesturestart", gesture);
-      document.removeEventListener("gesturechange", gesture);
-      document.removeEventListener("touchstart", pinch);
-      document.removeEventListener("touchmove", pinch);
+      document.removeEventListener("dblclick", gesture, true);
+      document.removeEventListener("gesturestart", gesture, true);
+      document.removeEventListener("gesturechange", gesture, true);
+      document.removeEventListener("gestureend", gesture, true);
+      document.removeEventListener("touchstart", pinch, true);
+      document.removeEventListener("touchmove", pinch, true);
     };
   }, []);
   return null;

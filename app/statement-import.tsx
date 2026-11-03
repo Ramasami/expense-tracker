@@ -858,7 +858,7 @@ export default function StatementImport({
                         your Sheet until you confirm.
                       </p>
                       <small>
-                        Originals are not attached as receipts automatically.
+                        Source files attach as receipts when you confirm the import.
                       </small>
                       <p role="status">
                         {scannerChecking
