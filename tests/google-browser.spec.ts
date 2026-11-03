@@ -1854,9 +1854,12 @@ test("CSV import previews duplicates and imports selected corrected rows only on
     })
     .click();
   await expect(dialog).toContainText("1 saved");
-  await expect(
-    dialog.getByLabel("Import row 2", { exact: true }),
-  ).toBeDisabled();
+  await expect(dialog.getByLabel("Import row 2", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(dialog.locator('.import-row[data-state="saved"]')).toContainText(
+    "New, purchase",
+  );
   expect(
     f.grids["Expense Ledger"].filter((r) => r[1] === "New, purchase"),
   ).toHaveLength(1);
@@ -3347,18 +3350,45 @@ for (const failure of ["upload", "unconfirmed"] as const)
     expect(uploads).toBe(0);
     expect(files.size).toBe(0);
     if (failure === "upload") {
-      for (const width of [1440, 390]) {
-        await page.setViewportSize({ width, height: 900 });
-        await expect(dialog.locator(".import-row").first()).toContainText(
-          "Source receipt: statement.pdf",
-        );
-        expect(
-          await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
-        ).toBe(true);
-        await dialog
-          .locator(".import-row")
-          .first()
-          .screenshot({ path: `work/scanned-receipt-preview-${width}.png` });
+      const first = dialog.locator(".import-row").first();
+      for (const label of [
+        "Date",
+        "Description / merchant",
+        "Amount (₹)",
+        "Transaction type",
+        "From account",
+        "Payment timing",
+        "Currency",
+        "Expense tag",
+      ]) {
+        await expect(
+          first.locator("label").filter({ hasText: label }).first(),
+        ).toBeVisible();
+      }
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        for (const width of [1440, 768, 390, 320]) {
+          await page.setViewportSize({ width, height: 900 });
+          await expect(first).toContainText("Source receipt: statement.pdf");
+          expect(
+            await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+          ).toBe(true);
+          expect(
+            await first.locator("input, select").evaluateAll((controls) =>
+              controls.every((el) => {
+                const r = el.getBoundingClientRect(),
+                  parent = el.closest("article")!.getBoundingClientRect();
+                return r.left >= parent.left && r.right <= parent.right;
+              }),
+            ),
+          ).toBe(true);
+          if (width === 1440 || width === 390)
+            await first.screenshot({
+              path: `work/import-review-${theme}-${width}.png`,
+            });
+        }
       }
       await page.setViewportSize({ width: 1440, height: 1000 });
     }
@@ -3392,6 +3422,33 @@ for (const failure of ["upload", "unconfirmed"] as const)
       })
       .click();
     await expect(dialog).toContainText("3 saved");
+    await expect(
+      dialog.getByLabel("Row 1 amount", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("checkbox", { name: /I reviewed the selected entries/ }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: /Import 0 selected/ }),
+    ).toHaveCount(0);
+    await expect(dialog.locator(".import-saved-facts").first()).toContainText(
+      "Expense tag",
+    );
+    if (failure === "upload") {
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          await dialog
+            .locator(".import-row")
+            .first()
+            .screenshot({ path: `work/import-saved-${theme}-${width}.png` });
+        }
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
     expect(uploads).toBe(3);
     expect(downloads).toBe(0);
     const imported = [1, 2, 3].map((n) =>

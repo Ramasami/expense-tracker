@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { Check, FileText } from "lucide-react";
 import { RecordData, money } from "../lib/finance";
 import {
   parseCSV,
@@ -144,6 +145,7 @@ export default function StatementImport({
   }
   const target = accounts.find((a) => a.id === (account || accounts[0]?.id));
   const selected = preview.filter((r) => r.selected && !r.done);
+  const importComplete = preview.length > 0 && preview.every((row) => row.done);
   async function read(file?: File) {
     if (!file) return;
     setError("");
@@ -942,50 +944,63 @@ export default function StatementImport({
                 {!!preview.length && (
                   <>
                     <div className="import-summary">
-                      <b>
-                        {selected.length} selected ·{" "}
-                        {money(
-                          selected.reduce(
-                            (s, r) => s + Number(r.record.amount || 0),
-                            0,
-                          ),
-                        )}
-                      </b>
+                      <div className="import-summary-heading">
+                        <b>
+                          {importComplete
+                            ? "Import complete"
+                            : "Review transactions"}
+                          <small>
+                            {importComplete
+                              ? "All entries saved to Google Sheets"
+                              : `${selected.length} selected`}
+                          </small>
+                        </b>
+                        <strong>
+                          {money(
+                            (importComplete ? preview : selected).reduce(
+                              (s, r) => s + Number(r.record.amount || 0),
+                              0,
+                            ),
+                          )}
+                        </strong>
+                      </div>
                       <small>
                         {preview.filter((r) => r.duplicate).length} possible
                         duplicates skipped by default ·{" "}
                         {preview.filter((r) => r.done).length} saved
                       </small>
-                      <label>
-                        <input
-                          type="checkbox"
-                          disabled={busy}
-                          checked={
-                            selected.length > 0 &&
-                            selected.length ===
-                              preview.filter(
-                                (r) =>
-                                  !r.done &&
-                                  !r.duplicate &&
-                                  !r.error &&
-                                  !r.record.scanNeedsLink,
-                              ).length
-                          }
-                          onChange={(e) =>
-                            setPreview((items) =>
-                              items.map((r) => ({
-                                ...r,
-                                selected:
-                                  e.target.checked &&
-                                  !r.done &&
-                                  !r.duplicate &&
-                                  !r.error,
-                              })),
-                            )
-                          }
-                        />
-                        Select valid, non-duplicate rows
-                      </label>
+                      {!importComplete && (
+                        <label>
+                          <input
+                            type="checkbox"
+                            disabled={busy}
+                            checked={
+                              selected.length > 0 &&
+                              selected.length ===
+                                preview.filter(
+                                  (r) =>
+                                    !r.done &&
+                                    !r.duplicate &&
+                                    !r.error &&
+                                    !r.record.scanNeedsLink,
+                                ).length
+                            }
+                            onChange={(e) =>
+                              setPreview((items) =>
+                                items.map((r) => ({
+                                  ...r,
+                                  selected:
+                                    e.target.checked &&
+                                    !r.done &&
+                                    !r.duplicate &&
+                                    !r.error,
+                                })),
+                              )
+                            }
+                          />
+                          Select valid, non-duplicate rows
+                        </label>
+                      )}
                     </div>
                     {preview.length > 25 && (
                       <div className="row-actions">
@@ -1016,268 +1031,405 @@ export default function StatementImport({
                         .map((item, visibleIndex) => {
                           const i = previewPage * 25 + visibleIndex;
                           return (
-                            <article className="import-row" key={i}>
-                              <label>
-                                <input
-                                  aria-label={`Import row ${i + 1}`}
-                                  type="checkbox"
+                            <article
+                              className="import-row"
+                              data-state={
+                                item.done
+                                  ? "saved"
+                                  : item.attempted
+                                    ? "pending"
+                                    : "review"
+                              }
+                              key={i}
+                            >
+                              <div className="import-row-heading">
+                                {item.done ? (
+                                  <span className="import-saved-title">
+                                    <Check size={17} />
+                                    Transaction {i + 1}
+                                  </span>
+                                ) : (
+                                  <label className="import-row-select">
+                                    <input
+                                      aria-label={`Import row ${i + 1}`}
+                                      type="checkbox"
+                                      disabled={
+                                        busy ||
+                                        item.done ||
+                                        item.attempted ||
+                                        item.record.scanNeedsLink
+                                      }
+                                      checked={item.selected}
+                                      onChange={(e) =>
+                                        setPreview((items) =>
+                                          items.map((r, j) =>
+                                            j === i
+                                              ? {
+                                                  ...r,
+                                                  selected: e.target.checked,
+                                                }
+                                              : r,
+                                          ),
+                                        )
+                                      }
+                                    />
+                                    <b>Transaction {i + 1}</b>
+                                  </label>
+                                )}
+                                <span className="import-row-status">
+                                  {item.done
+                                    ? "Saved"
+                                    : item.attempted
+                                      ? "Awaiting confirmation"
+                                      : item.duplicate
+                                        ? "Possible duplicate"
+                                        : item.selected
+                                          ? "Selected"
+                                          : "Not selected"}
+                                </span>
+                              </div>
+                              {item.done ? (
+                                <div className="import-saved-content">
+                                  <div className="import-saved-merchant">
+                                    <strong>{item.record.description}</strong>
+                                    <b>{money(item.record.amount)}</b>
+                                  </div>
+                                  <dl className="import-saved-facts">
+                                    <div>
+                                      <dt>Date</dt>
+                                      <dd>
+                                        {new Date(
+                                          item.record.date + "T12:00:00",
+                                        ).toLocaleDateString("en-IN", {
+                                          day: "numeric",
+                                          month: "short",
+                                          year: "numeric",
+                                        })}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt>Type</dt>
+                                      <dd>{item.record.type}</dd>
+                                    </div>
+                                    <div>
+                                      <dt>From account</dt>
+                                      <dd>
+                                        {accounts.find(
+                                          (a) => a.id === item.record.account,
+                                        )?.name || "—"}
+                                      </dd>
+                                    </div>
+                                    {item.record.toAccount && (
+                                      <div>
+                                        <dt>To account</dt>
+                                        <dd>
+                                          {accounts.find(
+                                            (a) =>
+                                              a.id === item.record.toAccount,
+                                          )?.name || "—"}
+                                        </dd>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <dt>Expense tag</dt>
+                                      <dd>
+                                        {tags.find(
+                                          (t) => t.id === item.record.tagId,
+                                        )?.name || "—"}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                </div>
+                              ) : (
+                                <fieldset
+                                  className="form-grid import-fields"
                                   disabled={
                                     busy ||
                                     item.done ||
                                     item.attempted ||
                                     item.record.scanNeedsLink
                                   }
-                                  checked={item.selected}
-                                  onChange={(e) =>
-                                    setPreview((items) =>
-                                      items.map((r, j) =>
-                                        j === i
-                                          ? { ...r, selected: e.target.checked }
-                                          : r,
-                                      ),
-                                    )
-                                  }
-                                />
-                                <b>
-                                  Row {i + 1}
-                                  {item.done
-                                    ? " · Saved"
-                                    : item.duplicate
-                                      ? " · Possible duplicate"
-                                      : ""}
-                                </b>
-                              </label>
-                              <fieldset
-                                className="form-grid"
-                                disabled={
-                                  busy ||
-                                  item.done ||
-                                  item.attempted ||
-                                  item.record.scanNeedsLink
-                                }
-                              >
-                                <input
-                                  aria-label={`Row ${i + 1} date`}
-                                  type="date"
-                                  value={item.record.date || ""}
-                                  onChange={(e) =>
-                                    edit(i, "date", e.target.value)
-                                  }
-                                />
-                                <input
-                                  aria-label={`Row ${i + 1} description`}
-                                  value={item.record.description}
-                                  onChange={(e) =>
-                                    edit(i, "description", e.target.value)
-                                  }
-                                />
-                                <input
-                                  aria-label={`Row ${i + 1} amount`}
-                                  type="number"
-                                  min="0.01"
-                                  step="0.01"
-                                  value={item.record.amount || ""}
-                                  onChange={(e) =>
-                                    edit(i, "amount", e.target.value)
-                                  }
-                                />
-                                <select
-                                  aria-label={`Row ${i + 1} type`}
-                                  value={item.record.type || "Expense"}
-                                  onChange={(e) =>
-                                    edit(i, "type", e.target.value)
-                                  }
                                 >
-                                  {item.record.type === "Unknown" && (
-                                    <option value="Unknown">
-                                      Choose transaction type
-                                    </option>
-                                  )}
-                                  {(card
-                                    ? ["Expense", "Income"]
-                                    : [
-                                        "Expense",
-                                        "Income",
-                                        "Investment",
-                                        "Transfer",
-                                      ]
-                                  ).map((t) => (
-                                    <option key={t}>{t}</option>
-                                  ))}
-                                </select>
-                                {(mode === "scan" ||
-                                  item.record.type === "Transfer") && (
-                                  <select
-                                    aria-label={`Row ${i + 1} from account`}
-                                    value={item.record.account}
-                                    onChange={(e) => {
-                                      edit(i, "account", e.target.value);
-                                      if (mode === "scan")
-                                        edit(i, "creditCardId", "");
-                                    }}
-                                  >
-                                    {accounts.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                                {item.record.type === "Transfer" && (
-                                  <select
-                                    aria-label={`Row ${i + 1} to account`}
-                                    value={item.record.toAccount || ""}
-                                    onChange={(e) =>
-                                      edit(i, "toAccount", e.target.value)
-                                    }
-                                  >
-                                    <option value="">
-                                      Choose destination account
-                                    </option>
-                                    {accounts
-                                      .filter(
-                                        (a) => a.id !== item.record.account,
-                                      )
-                                      .map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.name}
+                                  <label className="import-field import-field-wide">
+                                    <span>Description / merchant</span>
+                                    <input
+                                      aria-label={`Row ${i + 1} description`}
+                                      value={item.record.description}
+                                      onChange={(e) =>
+                                        edit(i, "description", e.target.value)
+                                      }
+                                    />
+                                  </label>
+                                  <label className="import-field">
+                                    <span>Date</span>
+                                    <input
+                                      aria-label={`Row ${i + 1} date`}
+                                      type="date"
+                                      value={item.record.date || ""}
+                                      onChange={(e) =>
+                                        edit(i, "date", e.target.value)
+                                      }
+                                    />
+                                  </label>
+
+                                  <label className="import-field">
+                                    <span>Amount (₹)</span>
+                                    <input
+                                      aria-label={`Row ${i + 1} amount`}
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      value={item.record.amount || ""}
+                                      onChange={(e) =>
+                                        edit(i, "amount", e.target.value)
+                                      }
+                                    />
+                                  </label>
+                                  <label className="import-field">
+                                    <span>Transaction type</span>
+                                    <select
+                                      aria-label={`Row ${i + 1} type`}
+                                      value={item.record.type || "Expense"}
+                                      onChange={(e) =>
+                                        edit(i, "type", e.target.value)
+                                      }
+                                    >
+                                      {item.record.type === "Unknown" && (
+                                        <option value="Unknown">
+                                          Choose transaction type
                                         </option>
+                                      )}
+                                      {(card
+                                        ? ["Expense", "Income"]
+                                        : [
+                                            "Expense",
+                                            "Income",
+                                            "Investment",
+                                            "Transfer",
+                                          ]
+                                      ).map((t) => (
+                                        <option key={t}>{t}</option>
                                       ))}
-                                  </select>
-                                )}
-                                {mode === "scan" &&
-                                  item.record.type === "Expense" && (
-                                    <select
-                                      aria-label={`Row ${i + 1} expense timing`}
-                                      value={
-                                        item.record.expenseMode || "Unknown"
-                                      }
-                                      onChange={(e) =>
-                                        edit(i, "expenseMode", e.target.value)
-                                      }
-                                    >
-                                      <option value="Unknown">
-                                        Confirm debit / credit card
-                                      </option>
-                                      <option value="Debit">
-                                        Debit · immediate expense
-                                      </option>
-                                      <option value="Credit">
-                                        Credit card · deferred expense
-                                      </option>
                                     </select>
+                                  </label>
+                                  {(mode === "scan" ||
+                                    item.record.type === "Transfer") && (
+                                    <label className="import-field">
+                                      <span>From account</span>
+                                      <select
+                                        aria-label={`Row ${i + 1} from account`}
+                                        value={item.record.account}
+                                        onChange={(e) => {
+                                          edit(i, "account", e.target.value);
+                                          if (mode === "scan")
+                                            edit(i, "creditCardId", "");
+                                        }}
+                                      >
+                                        {accounts.map((a) => (
+                                          <option key={a.id} value={a.id}>
+                                            {a.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
                                   )}
-                                {mode === "scan" &&
-                                  item.record.scanKind === "refund" && (
-                                    <select
-                                      aria-label={`Row ${i + 1} refund destination`}
-                                      value={
-                                        item.record.cardRefund ? "card" : "bank"
-                                      }
-                                      onChange={(event) => {
-                                        edit(
-                                          i,
-                                          "cardRefund",
-                                          event.target.value === "card",
-                                        );
-                                        if (event.target.value === "bank")
-                                          edit(i, "creditCardId", "");
-                                      }}
-                                    >
-                                      <option value="bank">
-                                        Refund into bank account
-                                      </option>
-                                      <option value="card">
-                                        Refund into credit card
-                                      </option>
-                                    </select>
+                                  {item.record.type === "Transfer" && (
+                                    <label className="import-field">
+                                      <span>To account</span>
+                                      <select
+                                        aria-label={`Row ${i + 1} to account`}
+                                        value={item.record.toAccount || ""}
+                                        onChange={(e) =>
+                                          edit(i, "toAccount", e.target.value)
+                                        }
+                                      >
+                                        <option value="">
+                                          Choose destination account
+                                        </option>
+                                        {accounts
+                                          .filter(
+                                            (a) => a.id !== item.record.account,
+                                          )
+                                          .map((a) => (
+                                            <option key={a.id} value={a.id}>
+                                              {a.name}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    </label>
                                   )}
-                                {mode === "scan" &&
-                                  (item.record.expenseMode === "Credit" ||
-                                    item.record.cardRefund) && (
+                                  {mode === "scan" &&
+                                    item.record.type === "Expense" && (
+                                      <label className="import-field import-field-wide">
+                                        <span>Payment timing</span>
+                                        <select
+                                          aria-label={`Row ${i + 1} expense timing`}
+                                          value={
+                                            item.record.expenseMode || "Unknown"
+                                          }
+                                          onChange={(e) =>
+                                            edit(
+                                              i,
+                                              "expenseMode",
+                                              e.target.value,
+                                            )
+                                          }
+                                        >
+                                          <option value="Unknown">
+                                            Confirm debit / credit card
+                                          </option>
+                                          <option value="Debit">
+                                            Debit · immediate expense
+                                          </option>
+                                          <option value="Credit">
+                                            Credit card · deferred expense
+                                          </option>
+                                        </select>
+                                      </label>
+                                    )}
+                                  {mode === "scan" &&
+                                    item.record.scanKind === "refund" && (
+                                      <label className="import-field import-field-wide">
+                                        <span>Refund destination</span>
+                                        <select
+                                          aria-label={`Row ${i + 1} refund destination`}
+                                          value={
+                                            item.record.cardRefund
+                                              ? "card"
+                                              : "bank"
+                                          }
+                                          onChange={(event) => {
+                                            edit(
+                                              i,
+                                              "cardRefund",
+                                              event.target.value === "card",
+                                            );
+                                            if (event.target.value === "bank")
+                                              edit(i, "creditCardId", "");
+                                          }}
+                                        >
+                                          <option value="bank">
+                                            Refund into bank account
+                                          </option>
+                                          <option value="card">
+                                            Refund into credit card
+                                          </option>
+                                        </select>
+                                      </label>
+                                    )}
+                                  {mode === "scan" &&
+                                    (item.record.expenseMode === "Credit" ||
+                                      item.record.cardRefund) && (
+                                      <label className="import-field import-field-wide">
+                                        <span>Credit card</span>
+                                        <select
+                                          aria-label={`Row ${i + 1} credit card`}
+                                          value={item.record.creditCardId || ""}
+                                          onChange={(e) =>
+                                            edit(
+                                              i,
+                                              "creditCardId",
+                                              e.target.value,
+                                            )
+                                          }
+                                        >
+                                          <option value="">
+                                            Choose credit card
+                                          </option>
+                                          {(
+                                            accounts.find(
+                                              (a) =>
+                                                a.id === item.record.account,
+                                            )?.creditCards || []
+                                          ).map((c: any) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                    )}
+                                  {mode === "scan" && (
+                                    <label className="import-field">
+                                      <span>Currency</span>
+                                      <select
+                                        aria-label={`Row ${i + 1} currency`}
+                                        value={
+                                          item.record.currency || "Unknown"
+                                        }
+                                        onChange={(event) =>
+                                          edit(
+                                            i,
+                                            "currency",
+                                            event.target.value,
+                                          )
+                                        }
+                                      >
+                                        <option value="Unknown">
+                                          Confirm currency
+                                        </option>
+                                        <option value="INR">INR · ₹</option>
+                                        <option value="Other">
+                                          Other · convert manually
+                                        </option>
+                                      </select>
+                                    </label>
+                                  )}
+                                  <label className="import-field">
+                                    <span>Expense tag</span>
                                     <select
-                                      aria-label={`Row ${i + 1} credit card`}
-                                      value={item.record.creditCardId || ""}
+                                      aria-label={`Row ${i + 1} tag`}
+                                      value={item.record.tagId}
                                       onChange={(e) =>
-                                        edit(i, "creditCardId", e.target.value)
+                                        edit(i, "tagId", e.target.value)
                                       }
                                     >
                                       <option value="">
-                                        Choose credit card
+                                        Choose expense tag
                                       </option>
-                                      {(
-                                        accounts.find(
-                                          (a) => a.id === item.record.account,
-                                        )?.creditCards || []
-                                      ).map((c: any) => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.name}
-                                        </option>
-                                      ))}
+                                      {tags
+                                        .filter((t) => t.status === "Active")
+                                        .map((t) => (
+                                          <option key={t.id} value={t.id}>
+                                            {t.name}
+                                          </option>
+                                        ))}
                                     </select>
+                                  </label>
+                                </fieldset>
+                              )}
+                              {mode === "scan" && !item.done && (
+                                <details className="import-review-notes">
+                                  <summary>AI review notes</summary>
+                                  <p>
+                                    Confidence: {item.record.confidence}. Check
+                                    the details against your document.
+                                  </p>
+                                  {(item.record.scanAccountHint ||
+                                    item.record.scanCardHint) && (
+                                    <p>
+                                      Detected account/card:{" "}
+                                      {[
+                                        item.record.scanAccountHint,
+                                        item.record.scanCardHint,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                      . Confirm your choices above.
+                                    </p>
                                   )}
-                                {mode === "scan" && (
-                                  <select
-                                    aria-label={`Row ${i + 1} currency`}
-                                    value={item.record.currency || "Unknown"}
-                                    onChange={(event) =>
-                                      edit(i, "currency", event.target.value)
-                                    }
-                                  >
-                                    <option value="Unknown">
-                                      Confirm currency
-                                    </option>
-                                    <option value="INR">INR · ₹</option>
-                                    <option value="Other">
-                                      Other · convert manually
-                                    </option>
-                                  </select>
-                                )}
-                                <select
-                                  aria-label={`Row ${i + 1} tag`}
-                                  value={item.record.tagId}
-                                  onChange={(e) =>
-                                    edit(i, "tagId", e.target.value)
-                                  }
-                                >
-                                  <option value="">Choose expense tag</option>
-                                  {tags
-                                    .filter((t) => t.status === "Active")
-                                    .map((t) => (
-                                      <option key={t.id} value={t.id}>
-                                        {t.name}
-                                      </option>
-                                    ))}
-                                </select>
-                              </fieldset>
-                              {mode === "scan" && (
-                                <small>
-                                  AI confidence estimate:{" "}
-                                  {item.record.confidence}. Verify against the
-                                  original document.
-                                </small>
+                                </details>
                               )}
                               {item.sourceFile && (
-                                <small>
-                                  Source receipt: {item.sourceFile.name}
-                                  {item.done ? " · Attached" : ""}
+                                <small className="import-source">
+                                  <FileText size={14} aria-hidden="true" />
+                                  <span>
+                                    Source receipt: {item.sourceFile.name}
+                                    {item.done ? " · Attached" : ""}
+                                  </span>
                                 </small>
                               )}
-                              {mode === "scan" &&
-                                (item.record.scanAccountHint ||
-                                  item.record.scanCardHint) && (
-                                  <small>
-                                    Detected in document:{" "}
-                                    {[
-                                      item.record.scanAccountHint,
-                                      item.record.scanCardHint,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                    . Confirm the account/card choices above.
-                                  </small>
-                                )}
-                              {item.error && (
+                              {item.error && !item.done && (
                                 <small>
                                   Source row needs review: {item.error}
                                 </small>
@@ -1312,7 +1464,7 @@ export default function StatementImport({
                   </div>
                 )}
               </div>
-              {mode === "scan" && preview.length > 0 && (
+              {mode === "scan" && selected.length > 0 && (
                 <label className="scan-confirm">
                   <input
                     type="checkbox"
@@ -1322,8 +1474,9 @@ export default function StatementImport({
                       setReviewConfirmed(event.target.checked)
                     }
                   />
-                  I reviewed the selected entries and confirm these changes to
-                  Google Sheets.
+                  <span>
+                    I reviewed the selected entries. Save them to Google Sheets.
+                  </span>
                 </label>
               )}
               {busy && scanStage && (
@@ -1334,6 +1487,7 @@ export default function StatementImport({
               )}
               <div className="form-footer">
                 <button
+                  className={importComplete ? "primary" : ""}
                   disabled={busy}
                   onClick={() => {
                     setOpen(false);
@@ -1342,20 +1496,22 @@ export default function StatementImport({
                 >
                   Close
                 </button>
-                <button
-                  className="primary"
-                  disabled={
-                    disabled ||
-                    busy ||
-                    !selected.length ||
-                    (mode === "scan" && !reviewConfirmed)
-                  }
-                  onClick={() => void commit()}
-                >
-                  {busy
-                    ? "Importing…"
-                    : `Import ${selected.length} selected transactions`}
-                </button>
+                {!importComplete && (
+                  <button
+                    className="primary"
+                    disabled={
+                      disabled ||
+                      busy ||
+                      !selected.length ||
+                      (mode === "scan" && !reviewConfirmed)
+                    }
+                    onClick={() => void commit()}
+                  >
+                    {busy
+                      ? "Importing…"
+                      : `Import ${selected.length} selected transactions`}
+                  </button>
+                )}
               </div>
               {mode === "csv" && (
                 <p className="credit-help">

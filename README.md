@@ -346,3 +346,6 @@ Gemini document scans use `responseMimeType: "application/json"` with `responseJ
 ### Scanned source receipts
 
 Confirming an AI import also saves each transaction’s source image or PDF in **Bills & receipts**. Review alone saves no Drive files. Upload progress is shown; a failed upload pauses the import before saving that row. Sync/retry an unconfirmed import in the same preview to reuse its uploaded receipt and avoid duplicate transactions. Several rows from one statement get independent attachments, so deleting one receipt does not break the others. Receipts remain available after refresh and load only when opened.
+
+
+Import previews show persistent labels for every editable field, with a two-column layout that adapts to narrow phones. AI review notes stay collapsed; source receipt names remain visible. Confirmed rows become compact, labeled summaries instead of dimmed disabled forms. When every row is saved, the summary shows the imported total and the footer offers Close without an empty import action or another confirmation checkbox. Unconfirmed rows retain their locked fields and exact-operation retry behavior.

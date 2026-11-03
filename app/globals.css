@@ -3478,3 +3478,221 @@ select:disabled {
   white-space: nowrap;
   border: 0;
 }
+
+/* Import review: visible labels and a distinct read-only completion state. */
+.import-modal .import-summary {
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--soft);
+}
+.import-summary-heading,
+.import-row-heading,
+.import-saved-merchant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.import-summary-heading b {
+  display: grid;
+  gap: 4px;
+  font-size: 15px;
+}
+.import-summary-heading b small {
+  font-size: 12px;
+  font-weight: 400;
+}
+.import-summary-heading > strong {
+  font-size: 22px;
+  white-space: nowrap;
+  letter-spacing: -0.6px;
+}
+.import-row {
+  min-width: 0;
+  padding: 20px;
+  gap: 18px;
+  background: var(--card);
+  border-radius: 18px;
+}
+.import-row-heading {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.import-row-select,
+.import-saved-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.import-row-status {
+  border-radius: 30px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 550;
+  background: var(--soft);
+  color: var(--muted);
+  text-align: center;
+}
+.import-row .import-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 14px;
+}
+.import-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  align-content: start;
+}
+.import-field > span {
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.import-field-wide {
+  grid-column: 1 / -1;
+}
+.import-field input,
+.import-field select {
+  display: block;
+  min-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  min-inline-size: 0;
+  line-height: 1.4;
+}
+.import-field input[type="date"] {
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+}
+.import-field input::-webkit-date-and-time-value {
+  text-align: left;
+  min-height: 1.4em;
+}
+.import-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.import-source svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.import-review-notes {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.import-review-notes > summary {
+  cursor: pointer;
+}
+.import-review-notes p {
+  font-size: 12px;
+}
+.import-row[data-state="saved"] {
+  border-color: color-mix(in srgb, var(--teal) 30%, var(--border));
+  background: color-mix(in srgb, var(--teal) 4%, var(--card));
+}
+.import-row[data-state="saved"] .import-row-status {
+  color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 10%, var(--card));
+}
+.import-saved-title svg {
+  color: var(--teal);
+}
+.import-saved-content {
+  display: grid;
+  gap: 18px;
+}
+.import-saved-merchant {
+  align-items: flex-start;
+}
+.import-saved-merchant strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.import-saved-merchant > b {
+  font-size: 20px;
+  letter-spacing: -0.4px;
+  white-space: nowrap;
+}
+.import-saved-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+.import-saved-facts > div {
+  min-width: 0;
+}
+.import-saved-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.import-saved-facts dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.import-modal .scan-confirm {
+  padding: 14px 16px;
+  background: var(--soft);
+  border-color: var(--border);
+  align-items: flex-start;
+  margin: 14px 0 0;
+}
+.import-modal .scan-confirm:has(input:checked) {
+  border-color: var(--teal);
+}
+.import-modal .scan-confirm input {
+  margin-top: 2px;
+}
+[data-theme="dark"] .import-row[data-state="saved"] .import-row-status,
+[data-theme="dark"] .import-saved-title svg {
+  color: #63d6b8;
+}
+@media (max-width: 600px) {
+  .import-modal .import-row {
+    padding: 14px;
+    gap: 16px;
+  }
+  .import-row .import-fields {
+    gap: 14px 10px;
+  }
+  .import-field input,
+  .import-field select {
+    font-size: 16px;
+  }
+  .import-saved-merchant {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .import-modal .form-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .import-modal .form-footer > button {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
+}
+@media (max-width: 360px) {
+  .import-row .import-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

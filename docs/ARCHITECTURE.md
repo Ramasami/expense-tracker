@@ -109,3 +109,6 @@ Gemini document scans use `responseMimeType: "application/json"` with `responseJ
 
 
 AI import previews pin the source File to each row using the validated source index, independent of upload order. Receipt upload must succeed before that row can be saved; failure pauses the batch. Uploaded metadata remains in the pending preview for exact-operation Sheet retries, avoiding repeated upload or a changed retry payload. Confirmed rows are skipped. An unconfirmed Sheet save never triggers automatic file deletion because the transaction may already exist; sync and retry the same pending import. Pending imports are not persisted as a competing local ledger. Existing lazy viewing, compression, shared ownership and Drive Trash deletion apply.
+
+
+Import previews show persistent labels for every editable field, with a two-column layout that adapts to narrow phones. AI review notes stay collapsed; source receipt names remain visible. Confirmed rows become compact, labeled summaries instead of dimmed disabled forms. When every row is saved, the summary shows the imported total and the footer offers Close without an empty import action or another confirmation checkbox. Unconfirmed rows retain their locked fields and exact-operation retry behavior.
