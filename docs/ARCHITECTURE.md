@@ -122,3 +122,11 @@ WebKit UI checks use a service-worker-blocked test context so mocked Google requ
 ## Build-time version history
 
 `next.config.ts` runs `scripts/release-history.mjs` to embed public commit subjects grouped by release tags. Untagged HEAD uses the same deterministic version as the release workflow. Settings renders this local searchable history with progressive disclosure; no runtime GitHub API or financial data is involved. Full-history checkout is required and already configured in both workflows.
+
+## Read-only AI financial reviews
+
+`lib/financial-analysis.ts` computes owner/account-scoped facts using shared cash, credit and loan helpers. The UI in `app/financial-analysis.tsx` reads fresh ledger/tags/accounts/settings, displays the exact summary, and requires explicit provider confirmation. Owner/account/period changes discard the old summary, report and consent. Shared accounts are counted once. Current balances and debt use active history, while report flows use the requested dates; ordinary account transfers are excluded from the cash-surplus measure. Calendar months, including inactive months, divide the savings illustration.
+
+The authenticated `analyzeFinances` Apps Script action accepts a bounded aggregate-only schema, optional risk/horizon enums and the selected saved provider. It validates shapes, numeric bounds and output, uses fixed provider endpoints with structured outputs, and has a separate one-minute/ten-per-day actor quota. No financial Sheet-write path or model tools are available. Report text is rendered as escaped React text. Provider failures are sanitized and never automatically retried. Reports, prompts and financial summaries are not persisted by this app; server properties retain only usage counters.
+
+Numeric charts and the savings calculator come from deterministic facts, not AI-authored numbers. The model is instructed to distinguish card settlements, loan principal, one-off income and investment contributions, flag missing records, and make only conditional educational investment suggestions without individual securities, live rates/tax rules or guaranteed returns. Automated tests use synthetic data and mocked providers; they do not send household records to an AI.

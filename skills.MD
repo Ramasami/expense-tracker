@@ -23,6 +23,7 @@ Read [README.md](README.md) for user-visible features, [docs/ARCHITECTURE.md](do
 | Credit card purchases, partial bill settlements | `lib/credit.ts`, `app/credit-bills.tsx` |
 | Loans and principal/interest splits | `lib/loans.ts`, `app/loan-tracker.tsx` |
 | Budgets, reconciliation, forecasts | `lib/planning.ts`, related `app/` components |
+| Read-only AI financial review | `app/financial-analysis.tsx`, `lib/financial-analysis.ts`, `apps-script/Code.gs` |
 | CSV/AI import preview | `app/statement-import.tsx`, `lib/statement-import.ts`, `lib/document-scanner.ts` |
 | Google identity / verified session | `lib/google-auth.ts`, `lib/google-sheets.ts` |
 | Receipts, shared Drive files and scanner server | `lib/receipts.ts`, `app/receipts.tsx`, `apps-script/Code.gs` |

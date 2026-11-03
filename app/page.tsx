@@ -4,6 +4,7 @@ import ListControls from "./list-controls";
 import PageHelp from "./page-help";
 import { useScrollToolbar } from "./use-scroll-toolbar";
 import Analytics from "./analytics";
+import FinancialAnalysis from "./financial-analysis";
 import Reconciliation from "./reconciliation";
 import StatementImport from "./statement-import";
 import ScannerSettings from "./scanner-settings";
@@ -2115,6 +2116,17 @@ export default function Home() {
           )}
           {viewAvailable && (
             <>
+              {["Dashboard", "Expense Analytics"].includes(page) && (
+                <div className="finance-review-entry">
+                  <FinancialAnalysis
+                    defaultOwner={person}
+                    defaultAccount={scopedAccount}
+                    owners={owners}
+                    accounts={data.accounts}
+                    disabled={stale || syncing || saving}
+                  />
+                </div>
+              )}
               {page === "Dashboard" && (
                 <>
                   <div className="overview-heading">

@@ -73,7 +73,7 @@ export const screenGuides: Record<string, ScreenGuide> = {
       ),
       step(
         "Follow the detail",
-        "Click a summary or chart to explore its transactions. Back returns to the previous screen and its filters.",
+        "Click summaries to explore transactions. Analyze my finances opens an owner or All owners review with spending insights and a savings calculator; confirm the summary before sending it to your saved AI. Back returns to the previous screen.",
         ["Summary", "Transactions", "Back to your view"],
         ".stats-grid",
         "Clickable summaries",
@@ -213,7 +213,7 @@ export const screenGuides: Record<string, ScreenGuide> = {
       ),
       step(
         "Explore the breakdown",
-        "Review category, merchant and timing patterns. Click supported chart categories to drill into matching transactions.",
+        "Review category, merchant and timing patterns, or choose Analyze my finances for an interactive owner or All owners AI review. Review fresh totals and confirm before sending the summary.",
         ["Category", "Pattern", "Matching records"],
         ".section-heading",
         "Analytics overview",

@@ -76,3 +76,7 @@ After a Gemini key test exhausts HTTP 503 retries, the service checks the config
 
 
 Gemini document scans use `responseMimeType: "application/json"` with `responseJsonSchema`. Live browser testing found that `responseFormat.text` returned HTTP 503 for the same synthetic PNG/model/key while the compatible configuration produced a valid proposal. The default is `gemini-3.6-flash`; deployments preserve an explicit `GEMINI_MODEL` override. No automatic model/provider fallback occurs.
+
+## Financial review action
+
+`analyzeFinances` uses the same saved selected provider/key and existing owner-plus-Sheet authorization. It requires `confirmed: true`, a strictly bounded aggregate summary and optional risk/horizon preferences. It returns validated read-only spending/saving/investing/debt sections. No document files, Google token or owner identity are forwarded to the model, and no finance writes occur. Separate limits: one request per minute and ten per owner/day, including failed attempts. No automatic retries. Deploy this action by updating the existing stable deployment; saved keys remain in Script properties.

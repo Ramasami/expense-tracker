@@ -44,7 +44,10 @@ export const scanSchema = z.object({
   warnings: z.array(z.string().max(1000)).max(20),
 });
 export type ScannedRow = z.infer<typeof scanRowSchema>;
-async function service(action: string, args: Record<string, unknown> = {}) {
+export async function aiService(
+  action: string,
+  args: Record<string, unknown> = {},
+) {
   const response = await fetch(RECEIPT_SERVICE_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=UTF-8" },
@@ -68,25 +71,25 @@ export async function scannerStatus(): Promise<{
   canConfigure?: boolean;
   model: string;
 }> {
-  return service("scannerStatus");
+  return aiService("scannerStatus");
 }
 export async function saveScannerKey(
   apiKey: string,
   provider?: AIProvider,
 ): ReturnType<typeof scannerStatus> {
-  return service("configureScanner", { apiKey, provider });
+  return aiService("configureScanner", { apiKey, provider });
 }
 export async function selectScannerProvider(
   provider: AIProvider,
 ): ReturnType<typeof scannerStatus> {
-  return service("selectScannerProvider", { provider });
+  return aiService("selectScannerProvider", { provider });
 }
 export async function testScannerKey(provider?: AIProvider): Promise<{
   ok: boolean;
   model: string;
   testedAt: string;
 }> {
-  return service("testScannerKey", { provider });
+  return aiService("testScannerKey", { provider });
 }
 function dataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -147,7 +150,7 @@ export async function analyzeDocuments(
     `Analyzing documents with ${AI_PROVIDERS[selectedProvider || "openai"].name}…`,
   );
   const result = scanSchema.parse(
-    await service("analyzeDocuments", {
+    await aiService("analyzeDocuments", {
       provider: selectedProvider,
       files: documents,
       hints,

@@ -356,3 +356,11 @@ Transaction dialogs constrain date/text/select controls to their grid cells and 
 ### Version history
 
 Settings includes a searchable, expandable version history with earlier release milestones and commit descriptions. Show older versions reveals more entries; commit links open the matching GitHub change. History is embedded at build time from Git, works offline, and updates automatically on each push/build.
+
+### AI financial review
+
+On **Home or Expense Analytics → Analyze my finances**, choose one owner or **All owners**, an optional account and reporting period. Review my data reads a fresh Sheet snapshot; stale/offline data never generates a new report. Review the totals and explicitly confirm sending the aggregate summary to the selected saved AI before generating. Optional risk comfort and investment horizon guide the response.
+
+The interactive report has Overview, Spending, Savings, Investing and Debt tabs, category shares, monthly trends, expandable prioritized steps, locally checked ideas and a category savings slider. Slider changes make no extra AI requests. Current cash uses all recorded history; report flows use selected dates. Shared accounts count once. Card purchases count as spending, settlements as cash movements, and loan interest is separate from principal. Contributions are not portfolio market values or returns. Coverage notes flag missing history and unknown card settlement.
+
+Only category totals, income/contribution categories, monthly aggregates, loan rates and debt totals are sent—no individual transaction descriptions, notes, emails, account names, receipt files or Google tokens. The review is read-only and held in memory; nothing changes in Sheets. Investment ideas are conditional educational guidance, not live quotes or guaranteed returns. Incomplete/malformed/provider failures produce an error, with no fabricated report or automatic retry. Limits are one request per minute and ten per owner/day; the configured AI quota/billing applies.
