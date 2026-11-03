@@ -352,3 +352,7 @@ Import previews show persistent labels for every editable field, with a two-colu
 
 
 Transaction dialogs constrain date/text/select controls to their grid cells and viewport, with readable 16 px inputs on phones/tablets to prevent focus zoom. Horizontal panning is clipped; long forms scroll vertically inside the locked overlay. Touch zoom guards use any coarse pointer or touch capability, including tablets with a mouse/trackpad primary pointer, and capture cancelable pinch/Safari gesture/double-click events. Single-finger vertical scrolling remains enabled. Browser/OS accessibility zoom overrides remain outside app control.
+
+### Version history
+
+Settings includes a searchable, expandable version history with earlier release milestones and commit descriptions. Show older versions reveals more entries; commit links open the matching GitHub change. History is embedded at build time from Git, works offline, and updates automatically on each push/build.

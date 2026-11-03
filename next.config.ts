@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "export",
   env: {
+    NEXT_PUBLIC_RELEASE_HISTORY: execFileSync(
+      "node",
+      ["scripts/release-history.mjs"],
+      { encoding: "utf8" },
+    ).trim(),
     NEXT_PUBLIC_APP_VERSION:
       process.env.NEXT_PUBLIC_APP_VERSION ||
       execFileSync("node", ["scripts/release-version.mjs"], {

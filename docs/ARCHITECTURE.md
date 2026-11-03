@@ -118,3 +118,7 @@ Transaction dialogs constrain date/text/select controls to their grid cells and 
 
 
 WebKit UI checks use a service-worker-blocked test context so mocked Google requests cannot escape via a worker. Its automation protocol can omit binary File request bodies; the receipt fixture accepts explicit synthetic bytes as a fallback for mocked download responses. Chromium checks still inspect the actual intercepted upload body. No real Google credentials or documents are used.
+
+## Build-time version history
+
+`next.config.ts` runs `scripts/release-history.mjs` to embed public commit subjects grouped by release tags. Untagged HEAD uses the same deterministic version as the release workflow. Settings renders this local searchable history with progressive disclosure; no runtime GitHub API or financial data is involved. Full-history checkout is required and already configured in both workflows.

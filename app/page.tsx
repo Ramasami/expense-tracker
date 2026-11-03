@@ -1,4 +1,5 @@
 "use client";
+import ReleaseHistory from "./release-history";
 import ListControls from "./list-controls";
 import PageHelp from "./page-help";
 import { useScrollToolbar } from "./use-scroll-toolbar";
@@ -3246,6 +3247,7 @@ export default function Home() {
                       </a>
                     )}
                   </div>
+                  <ReleaseHistory />
                   <ScannerSettings disabled={stale || syncing || saving} />
                   <h3>Display & defaults</h3>
                   <label>
