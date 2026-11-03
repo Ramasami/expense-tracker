@@ -341,3 +341,8 @@ After a Gemini key test exhausts HTTP 503 retries, the service checks the config
 
 
 Gemini document scans use `responseMimeType: "application/json"` with `responseJsonSchema`. Live browser testing found that `responseFormat.text` returned HTTP 503 for the same synthetic PNG/model/key while the compatible configuration produced a valid proposal. The default is `gemini-3.6-flash`; deployments preserve an explicit `GEMINI_MODEL` override. No automatic model/provider fallback occurs.
+
+
+### Scanned source receipts
+
+Confirming an AI import also saves each transaction’s source image or PDF in **Bills & receipts**. Review alone saves no Drive files. Upload progress is shown; a failed upload pauses the import before saving that row. Sync/retry an unconfirmed import in the same preview to reuse its uploaded receipt and avoid duplicate transactions. Several rows from one statement get independent attachments, so deleting one receipt does not break the others. Receipts remain available after refresh and load only when opened.

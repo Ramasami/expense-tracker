@@ -2312,6 +2312,8 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
     page,
   }) => {
     const { f } = await mockGoogle(page);
+    let uploads = 0;
+    await mockReceiptService(page, { onUpload: () => uploads++ });
     let analyses = 0;
     await page.route("https://script.google.com/macros/s/**/exec", (route) => {
       const req = route.request().postDataJSON();
@@ -2322,6 +2324,7 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
             result: { provider, configured: true, model: "test-model" },
           },
         });
+      if (req.action !== "analyzeDocuments") return route.fallback();
       expect(req.provider).toBe(provider);
       analyses++;
       return route.fulfill({
@@ -2381,6 +2384,7 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
       dialog.getByLabel("Row 1 description", { exact: true }),
     ).toHaveValue("AI bill proposal");
     expect(f.grids["Expense Ledger"].length).toBe(2);
+    expect(uploads).toBe(0);
     const save = dialog.getByRole("button", {
       name: "Import 1 selected transactions",
       exact: true,
@@ -2401,6 +2405,13 @@ for (const provider of ["openai", "gemini", "groq", "claude"] as const)
       f.grids["Expense Ledger"].filter((r) => r[1] === "AI bill proposal"),
     ).toHaveLength(1);
     expect(analyses).toBe(1);
+    expect(uploads).toBe(1);
+    const imported = f.grids["Expense Ledger"].find(
+      (r) => r[1] === "AI bill proposal",
+    )!;
+    expect(JSON.parse(imported[22])).toEqual([
+      expect.objectContaining({ name: "bill.png", storage: "shared-v1" }),
+    ]);
   });
 
 test("list controls search account names, filter status and sort report choices", async ({
@@ -3229,3 +3240,210 @@ test("Gemini key text entry accepts a copied key and only saved providers become
   ).toBeEnabled();
   expect(saves).toBe(1);
 });
+
+for (const failure of ["upload", "unconfirmed"] as const)
+  test(`AI source receipts attach to the right rows and survive ${failure} retries without duplicate saves`, async ({
+    page,
+  }) => {
+    const { f, state } = await mockGoogle(page);
+    let uploads = 0,
+      downloads = 0;
+    const files = await mockReceiptService(page, {
+      onUpload: () => uploads++,
+      onDownload: () => downloads++,
+    });
+    let failUpload = failure === "upload";
+    await page.route(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=*",
+      async (route) => {
+        if (failUpload) {
+          failUpload = false;
+          return route.fulfill({
+            status: 503,
+            json: { error: { message: "Synthetic upload failure" } },
+          });
+        }
+        return route.fallback();
+      },
+    );
+    await page.route(
+      "https://script.google.com/macros/s/**/exec",
+      async (route) => {
+        const req = route.request().postDataJSON();
+        if (req.action === "scannerStatus")
+          return route.fulfill({
+            json: {
+              ok: true,
+              result: {
+                provider: "gemini",
+                configured: true,
+                model: "test-model",
+              },
+            },
+          });
+        if (req.action !== "analyzeDocuments") return route.fallback();
+        return route.fulfill({
+          json: {
+            ok: true,
+            result: {
+              transactions: [1, 0, 1].map((sourceIndex, index) => ({
+                date: "2026-11-02",
+                description: `Source receipt purchase ${index + 1}`,
+                amount: 10 + index,
+                type: "Expense",
+                expenseMode: "Debit",
+                kind: "purchase",
+                tagId: "sheet-tag-2",
+                accountHint: null,
+                toAccountHint: null,
+                creditCardHint: null,
+                currency: "INR",
+                confidence: "high",
+                sourceIndex,
+                notes: "Synthetic receipt test",
+              })),
+              warnings: [],
+            },
+          },
+        });
+      },
+    );
+    await login(page);
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page
+      .getByRole("button", { name: "Import statement", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Import statement",
+      exact: true,
+    });
+    await dialog
+      .getByRole("button", { name: "Upload using AI", exact: true })
+      .click();
+    await dialog.getByLabel("Scan documents", { exact: true }).setInputFiles([
+      {
+        name: "source.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      },
+      {
+        name: "statement.pdf",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("%PDF-synthetic-test"),
+      },
+    ]);
+    await dialog
+      .getByRole("button", { name: "Analyze with AI", exact: true })
+      .click();
+    await expect(
+      dialog.getByLabel("Row 3 description", { exact: true }),
+    ).toHaveValue("Source receipt purchase 3");
+    expect(uploads).toBe(0);
+    expect(files.size).toBe(0);
+    if (failure === "upload") {
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(dialog.locator(".import-row").first()).toContainText(
+          "Source receipt: statement.pdf",
+        );
+        expect(
+          await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+        ).toBe(true);
+        await dialog
+          .locator(".import-row")
+          .first()
+          .screenshot({ path: `work/scanned-receipt-preview-${width}.png` });
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    const confirm = dialog.getByRole("checkbox", {
+      name: /I reviewed the selected entries/,
+    });
+    await confirm.check();
+    if (failure === "unconfirmed") state.dropWriteResponse = true;
+    await dialog
+      .getByRole("button", {
+        name: "Import 3 selected transactions",
+        exact: true,
+      })
+      .click();
+    await expect(dialog.getByRole("alert")).toContainText("Import paused");
+    if (failure === "unconfirmed") {
+      expect(uploads).toBe(1);
+      await dialog
+        .getByRole("button", { name: "Sync with Google Sheets", exact: true })
+        .click();
+    } else {
+      expect(uploads).toBe(0);
+      expect(f.grids["Expense Ledger"].length).toBe(2);
+    }
+    await expect(confirm).toBeEnabled();
+    await confirm.check();
+    await dialog
+      .getByRole("button", {
+        name: "Import 3 selected transactions",
+        exact: true,
+      })
+      .click();
+    await expect(dialog).toContainText("3 saved");
+    expect(uploads).toBe(3);
+    expect(downloads).toBe(0);
+    const imported = [1, 2, 3].map((n) =>
+      f.grids["Expense Ledger"].filter(
+        (r) => r[1] === `Source receipt purchase ${n}`,
+      ),
+    );
+    imported.forEach((rows) => expect(rows).toHaveLength(1));
+    const attached = imported.map((rows) => JSON.parse(rows[0][22])[0]);
+    expect(attached.map((r) => r.name)).toEqual([
+      "statement.pdf",
+      "source.png",
+      "statement.pdf",
+    ]);
+    expect(new Set(attached.map((r) => r.id)).size).toBe(3);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await page.reload();
+    await expect(page.locator(".sync")).toContainText("Google connected");
+    await page
+      .locator("nav")
+      .getByRole("button", { name: /^Transactions/ })
+      .click();
+    await page
+      .getByRole("button", { name: "Source receipt purchase 2", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "View source.png", exact: true }),
+    ).toBeVisible();
+    expect(downloads).toBe(0);
+    await page
+      .getByRole("button", { name: "View source.png", exact: true })
+      .click();
+    await expect(
+      page.getByAltText("source.png", { exact: true }),
+    ).toBeVisible();
+    expect(downloads).toBe(1);
+    await page
+      .getByRole("button", { name: "Close transaction detail", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Source receipt purchase 1", exact: true })
+      .click();
+    page.once("dialog", (d) => d.accept());
+    await page
+      .getByRole("button", {
+        name: "Delete receipt statement.pdf",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "View statement.pdf", exact: true }),
+    ).toHaveCount(0);
+    expect(files.get(attached[0].id).trashed).toBe(true);
+    expect(files.get(attached[2].id).trashed).not.toBe(true);
+  });

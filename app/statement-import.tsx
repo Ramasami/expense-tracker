@@ -15,6 +15,12 @@ import {
   ScanHints,
   scanDocumentSchema,
 } from "../lib/document-scanner";
+import {
+  uploadReceipt,
+  type Receipt,
+  type ReceiptProgress,
+} from "../lib/receipts";
+import { TransferProgress } from "./receipts";
 import { useDialogScrollLock } from "./use-dialog-scroll-lock";
 import { AI_PROVIDERS, type AIProvider } from "../lib/ai-providers";
 type Preview = {
@@ -25,6 +31,8 @@ type Preview = {
   op: string;
   done?: boolean;
   attempted?: boolean;
+  sourceFile?: File;
+  receipt?: Receipt;
 };
 const columnNames: Record<string, string> = {
   date: "Date",
@@ -80,6 +88,10 @@ export default function StatementImport({
       ReturnType<typeof scanDocumentSchema.parse>[]
     >([]),
     [scanStage, setScanStage] = useState(""),
+    [receiptTransfer, setReceiptTransfer] = useState<{
+      name: string;
+      progress: ReceiptProgress;
+    } | null>(null),
     [scanWarnings, setScanWarnings] = useState<string[]>([]),
     [reviewConfirmed, setReviewConfirmed] = useState(false),
     [error, setError] = useState(""),
@@ -252,6 +264,7 @@ export default function StatementImport({
               : "";
         return {
           record,
+          sourceFile: scanFiles[row.sourceIndex],
           selected:
             !error &&
             row.confidence === "high" &&
@@ -464,6 +477,30 @@ export default function StatementImport({
           );
           break;
         }
+        if (mode === "scan") {
+          let receipt = item.receipt;
+          if (!receipt) {
+            if (!item.sourceFile)
+              throw Error(
+                "The source document is missing. Select it and analyze again before importing.",
+              );
+            // A separate Drive file per transaction keeps receipt deletion independent.
+            // The stable row operation also makes interrupted upload retries idempotent.
+            receipt = await uploadReceipt(
+              item.sourceFile,
+              `scan-${item.op}`,
+              (progress) =>
+                setReceiptTransfer({ name: item.sourceFile!.name, progress }),
+            );
+            const attached = receipt;
+            setPreview((items) =>
+              items.map((i) =>
+                i.op === item.op ? { ...i, receipt: attached } : i,
+              ),
+            );
+          }
+          r.receipts = [receipt];
+        }
         setPreview((items) =>
           items.map((i) => (i.op === item.op ? { ...i, attempted: true } : i)),
         );
@@ -480,7 +517,12 @@ export default function StatementImport({
         );
         setProgress(++count);
       }
+    } catch (error) {
+      setError(
+        `Import paused: ${(error as Error).message} No further rows were saved. Retry to continue.`,
+      );
     } finally {
+      setReceiptTransfer(null);
       setBusy(false);
     }
   }
@@ -588,6 +630,9 @@ export default function StatementImport({
                         {scanFiles.length
                           ? scanFiles.map((file) => file.name).join(" · ")
                           : "Choose up to 5 bills, receipts or statement screenshots"}
+                      </small>
+                      <small>
+                        Source files attach to the transactions when you import.
                       </small>
                     </label>
                   )}
@@ -1212,6 +1257,12 @@ export default function StatementImport({
                                   original document.
                                 </small>
                               )}
+                              {item.sourceFile && (
+                                <small>
+                                  Source receipt: {item.sourceFile.name}
+                                  {item.done ? " · Attached" : ""}
+                                </small>
+                              )}
                               {mode === "scan" &&
                                 (item.record.scanAccountHint ||
                                   item.record.scanCardHint) && (
@@ -1245,7 +1296,13 @@ export default function StatementImport({
                     </button>
                   </div>
                 )}
-                {busy && (
+                {receiptTransfer && (
+                  <TransferProgress
+                    name={receiptTransfer.name}
+                    progress={receiptTransfer.progress}
+                  />
+                )}
+                {busy && !scanStage && (
                   <div role="status">
                     <progress
                       value={progress}

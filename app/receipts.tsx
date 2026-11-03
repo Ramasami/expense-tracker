@@ -11,7 +11,7 @@ import {
   trashReceipt,
   restoreReceipt,
 } from "../lib/receipts";
-function TransferProgress({
+export function TransferProgress({
   name,
   progress,
 }: {
