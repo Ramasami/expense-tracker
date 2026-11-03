@@ -73,7 +73,7 @@ export const screenGuides: Record<string, ScreenGuide> = {
       ),
       step(
         "Follow the detail",
-        "Click summaries to explore transactions. Analyze my finances opens an owner or All owners review with spending insights and a savings calculator; confirm the summary before sending it to your saved AI. Back returns to the previous screen.",
+        "Expand Cash-flow details for ledger cash and owner comparisons. Click summaries to explore transactions. Analyze my finances opens an owner or All owners review with spending insights and a savings calculator; confirm the summary before sending it to your saved AI. Back returns to the previous screen.",
         ["Summary", "Transactions", "Back to your view"],
         ".stats-grid",
         "Clickable summaries",

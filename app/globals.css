@@ -4318,3 +4318,49 @@ select:disabled {
   z-index: 2;
   background: var(--soft);
 }
+
+/* Group tasks; keep diagnostic detail available without dominating Home. */
+.navigation-group + .navigation-group {
+  margin-top: 18px;
+}
+.navigation-group-label {
+  margin: 0 15px 5px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+.dashboard-cash-details {
+  padding: 20px;
+  margin-top: 24px;
+}
+.dashboard-cash-details > summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.dashboard-cash-details > summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  margin: 7px 0 0 16px;
+}
+.dashboard-cash-details[open] > summary {
+  margin-bottom: 20px;
+}
+.dashboard-cash-details .available-cash {
+  margin-top: 0;
+}
+.dashboard-cash-details .balance-grid {
+  margin-bottom: 0;
+}
+@media (max-width: 600px) {
+  .dashboard-cash-details {
+    padding: 18px;
+  }
+}
+
+.account-balances-grid > .account-balance-card:only-child {
+  grid-column: 1 / -1;
+}

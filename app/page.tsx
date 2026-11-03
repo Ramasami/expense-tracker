@@ -1825,25 +1825,69 @@ export default function Home() {
             <small>Your shared financial space</small>
           </div>
         </div>
-        <div className="nav-label">YOUR MONEY, AT A GLANCE</div>
-        <nav>
-          {navigation.map(([name, Icon]) => (
-            <button
-              key={name}
-              className={page === name ? "nav active" : "nav"}
-              onClick={() => navigate(name)}
+        <nav aria-label="Main navigation">
+          {[
+            {
+              label: "Everyday",
+              screens: [
+                "Dashboard",
+                "Transactions",
+                "Accounts",
+                "Credit Card Bills",
+                "Loan Tracker",
+              ],
+            },
+            {
+              label: "Plan ahead",
+              screens: [
+                "Budgets",
+                "Financial Goals",
+                "Recurring Transactions",
+                "Investments",
+              ],
+            },
+            {
+              label: "Understand",
+              screens: ["Expense Analytics", "Income & Cash Flow", "Reports"],
+            },
+            {
+              label: "Manage",
+              screens: ["Expense Tags", "Audit History", "Settings"],
+            },
+          ].map((group) => (
+            <div
+              className="navigation-group"
+              key={group.label}
+              role="group"
+              aria-label={group.label}
             >
-              <Icon size={19} />
-              {name}
-              {name === "Transactions" && (
-                <span className="nav-count">
-                  {
-                    data.transactions.filter((r) => r.status !== "Deleted")
-                      .length
-                  }
-                </span>
-              )}
-            </button>
+              <p className="navigation-group-label">{group.label}</p>
+              {group.screens.map((screen) => {
+                const [name, Icon] = navigation.find(
+                  ([name]) => name === screen,
+                )!;
+                return (
+                  <button
+                    key={name}
+                    className={page === name ? "nav active" : "nav"}
+                    aria-current={page === name ? "page" : undefined}
+                    onClick={() => navigate(name)}
+                  >
+                    <Icon size={19} />
+                    {name}
+                    {name === "Transactions" && (
+                      <span className="nav-count">
+                        {
+                          data.transactions.filter(
+                            (r) => r.status !== "Deleted",
+                          ).length
+                        }
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -2136,7 +2180,9 @@ export default function Home() {
                         : "Your money at a glance"}
                     </h2>
                     <span>
-                      {range[0]} — {range[1]}
+                      {period === "All Time"
+                        ? "All recorded history"
+                        : `${range[0]} — ${range[1]}`}
                     </span>
                   </div>
                   <div className="stats-grid">
@@ -2369,46 +2415,56 @@ export default function Home() {
                     </div>
                     {transactionList(5)}
                   </section>
-                  <div className="available-cash card">
-                    <div>
-                      <span className="stat-label">
-                        Ledger cash through {range[1]}
-                      </span>
-                      <strong>{money(available)}</strong>
-                      <small>
-                        Calculated from opening balances and recorded movements;
-                        check the confirmed balances above for reconciliation.
-                        Income − expenses − investment contributions. Unassigned
-                        records are included in the combined view.
-                      </small>
-                    </div>
-                    <Wallet size={25} />
-                  </div>
-                  <div className="balance-grid">
-                    {[...ownerNames, "Combined"].map((p) => (
-                      <div className="card" key={p}>
+                  <details className="card dashboard-cash-details">
+                    <summary>
+                      Cash-flow details{" "}
+                      <span>Ledger balance & owner comparison</span>
+                    </summary>
+                    <div className="available-cash card">
+                      <div>
                         <span className="stat-label">
-                          {p === "Combined" ? "Household" : p} cash movement
+                          Ledger cash
+                          {period === "All Time"
+                            ? " · All time"
+                            : ` through ${range[1]}`}
                         </span>
-                        <strong>
-                          {money(
-                            totals(
-                              filterRows(
-                                data.transactions,
-                                p,
-                                ...range,
-                                data.accounts,
-                                allOwners(data.settings),
-                              ),
-                            ).net,
-                          )}
-                        </strong>
+                        <strong>{money(available)}</strong>
                         <small>
-                          Income − expenses − contributions in this period
+                          Calculated from opening balances and recorded
+                          movements; check the confirmed balances above for
+                          reconciliation. Income − expenses − investment
+                          contributions. Unassigned records are included in the
+                          combined view.
                         </small>
                       </div>
-                    ))}
-                  </div>
+                      <Wallet size={25} />
+                    </div>
+                    <div className="balance-grid">
+                      {[...ownerNames, "Combined"].map((p) => (
+                        <div className="card" key={p}>
+                          <span className="stat-label">
+                            {p === "Combined" ? "Household" : p} cash movement
+                          </span>
+                          <strong>
+                            {money(
+                              totals(
+                                filterRows(
+                                  data.transactions,
+                                  p,
+                                  ...range,
+                                  data.accounts,
+                                  allOwners(data.settings),
+                                ),
+                              ).net,
+                            )}
+                          </strong>
+                          <small>
+                            Income − expenses − contributions in this period
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 </>
               )}
               {page === "Loan Tracker" && (

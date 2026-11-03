@@ -364,3 +364,9 @@ On **Home or Expense Analytics → Analyze my finances**, choose one owner or **
 The interactive report has Overview, Spending, Savings, Investing and Debt tabs, category shares, monthly trends, expandable prioritized steps, locally checked ideas and a category savings slider. Slider changes make no extra AI requests. Current cash uses all recorded history; report flows use selected dates. Shared accounts count once. Card purchases count as spending, settlements as cash movements, and loan interest is separate from principal. Contributions are not portfolio market values or returns. Coverage notes flag missing history and unknown card settlement.
 
 Only category totals, income/contribution categories, monthly aggregates, loan rates and debt totals are sent—no individual transaction descriptions, notes, emails, account names, receipt files or Google tokens. The review is read-only and held in memory; nothing changes in Sheets. Investment ideas are conditional educational guidance, not live quotes or guaranteed returns. Incomplete/malformed/provider failures produce an error, with no fabricated report or automatic retry. Limits are one request per minute and ten per owner/day; the configured AI quota/billing applies.
+
+### Navigation and dashboard detail
+
+The menu groups tasks into Everyday, Plan ahead, Understand and Manage, and marks the current screen. Home prioritizes current balances, trends and recent transactions; expand **Cash-flow details** for ledger cash and owner comparisons. All-time cash labels use “All time” rather than an internal cutoff date.
+
+See [the product and UX review](docs/PRODUCT_REVIEW.md) for shipped improvements and prioritized next experiments.
