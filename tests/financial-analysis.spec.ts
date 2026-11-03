@@ -117,7 +117,7 @@ test("financial review requires fresh Sheet data and consent; interactive result
   await d.getByRole("checkbox", { name: "Reviewed this idea" }).check();
   expect(requests).toHaveLength(1);
   expect(state.sheetRequests).toBe(after);
-  await d.getByText("Change owner, account or period", {exact:true}).click();
+  await d.getByText("Change owner, account or period", { exact: true }).click();
   await d.getByLabel("Analysis period").selectOption("All Time");
   await expect(d.getByRole("button", { name: "Review my data" })).toBeVisible();
   await expect(d.getByRole("heading", { name: report.title })).toHaveCount(0);
@@ -176,6 +176,13 @@ for (const width of [320, 390, 768, 1440])
     if (width === 390) {
       await page.evaluate(
         () => (document.documentElement.dataset.theme = "dark"),
+      );
+      await expect(
+        d.getByRole("button", { name: "Close financial analysis" }),
+      ).toHaveCSS("background-color", "rgb(36, 36, 36)");
+      await expect(d.locator(".finance-metrics").first()).toHaveCSS(
+        "color",
+        "rgb(247, 247, 247)",
       );
       await page.screenshot({
         path: "work/finance-review-dark-390.png",
