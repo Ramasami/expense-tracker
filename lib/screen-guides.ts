@@ -110,7 +110,7 @@ export const screenGuides: Record<string, ScreenGuide> = {
       ),
       step(
         "Import and recover",
-        "Import CSVs or scan bill images into an editable preview. Recently deleted holds recoverable transactions; receipt actions are inside transaction details.",
+        "Import CSVs or scan bill images into an editable preview. Check possible duplicates compares nearby dates and merchants without deleting anything. Tag suggestions learn from confirmed entries in the same account. Recently deleted holds recoverable transactions.",
         ["Preview before saving", "Review duplicates", "Restore when needed"],
         ".card-heading .row-actions",
         "Import, export and recovery",
@@ -271,6 +271,13 @@ export const screenGuides: Record<string, ScreenGuide> = {
     intro:
       "Understand income, spending and the cash moving through your accounts.",
     steps: [
+      step(
+        "Explore future cash",
+        "Forecast starting cash uses recorded movements through today. Choose an account and horizon, then adjust expected monthly income, outflow or a one-off amount. The historical-average scenario does not schedule bills or change your Sheet.",
+        ["Adjust assumptions", "Compare projected cash", "Read-only scenario"],
+        ".cash-forecast",
+        "Cash-flow forecast",
+      ),
       step(
         "Choose dates and accounts",
         "Use the owner and report-date controls to set the cash-flow period.",

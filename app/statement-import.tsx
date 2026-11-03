@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import CategorySuggestion from "./category-suggestion";
+import { duplicateMatches } from "../lib/smart-finance";
 import { Check, FileText } from "lucide-react";
 import { RecordData, money } from "../lib/finance";
 import {
@@ -858,7 +860,8 @@ export default function StatementImport({
                         your Sheet until you confirm.
                       </p>
                       <small>
-                        Source files attach as receipts when you confirm the import.
+                        Source files attach as receipts when you confirm the
+                        import.
                       </small>
                       <p role="status">
                         {scannerChecking
@@ -1397,6 +1400,24 @@ export default function StatementImport({
                                     </select>
                                   </label>
                                 </fieldset>
+                              )}
+                              {!item.done && !item.attempted && (
+                                <CategorySuggestion
+                                  row={item.record}
+                                  history={rows}
+                                  tags={tags}
+                                  disabled={busy}
+                                  onApply={(id) => edit(i, "tagId", id)}
+                                />
+                              )}
+                              {item.duplicate && !item.done && (
+                                <p className="smart-warning">
+                                  {duplicateMatches(item.record, rows)[0]
+                                    ?.reason ||
+                                    "Matches another row in this upload"}
+                                  . Skipped by default; select only if it is a
+                                  separate transaction.
+                                </p>
                               )}
                               {mode === "scan" && !item.done && (
                                 <details className="import-review-notes">

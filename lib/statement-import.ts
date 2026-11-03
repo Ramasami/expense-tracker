@@ -1,3 +1,4 @@
+import { duplicateReason } from "./smart-finance";
 import type { RecordData } from "./finance";
 export function parseCSV(text: string): string[][] {
   text = text.replace(/^\uFEFF/, "");
@@ -82,10 +83,22 @@ export function statementDuplicates(
   const seen = new Set(
     existing.filter((r) => r.status === "Active").map(duplicateKey),
   );
+  const bucket = (row: Partial<RecordData>) =>
+    [row.account, row.type, Math.round(Number(row.amount) * 100)].join("|");
+  const candidates = new Map<string, Partial<RecordData>[]>();
+  for (const row of existing.filter((r) => r.status === "Active")) {
+    const key = bucket(row);
+    candidates.set(key, [...(candidates.get(key) || []), row]);
+  }
   return rows.map((row) => {
     const key = duplicateKey(row),
-      duplicate = seen.has(key);
+      group = bucket(row);
+    const prior = candidates.get(group) || [];
+    const candidate = { ...row, id: undefined };
+    const duplicate =
+      seen.has(key) || prior.some((r) => !!duplicateReason(candidate, r));
     seen.add(key);
+    candidates.set(group, [...prior, row]);
     return duplicate;
   });
 }

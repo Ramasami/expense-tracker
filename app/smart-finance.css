@@ -1,0 +1,180 @@
+.cash-forecast {
+  margin-bottom: 24px;
+  min-width: 0;
+  padding: 24px;
+}
+.cash-forecast .card-heading p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+.forecast-toolbar,
+.forecast-assumptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.forecast-toolbar label,
+.forecast-assumptions label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+.forecast-toolbar select,
+.forecast-assumptions input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.forecast-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.forecast-metrics small,
+.forecast-metrics strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.forecast-metrics small {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.forecast-metrics strong {
+  font-size: clamp(18px, 2.5vw, 28px);
+}
+.forecast-chart {
+  height: 240px;
+  width: 100%;
+  min-width: 0;
+}
+.smart-caption,
+.smart-notes {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.smart-notes {
+  margin-top: 18px;
+}
+.smart-notes summary,
+.duplicate-review summary {
+  cursor: pointer;
+}
+.smart-warning {
+  color: var(--red);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.duplicate-review {
+  margin: 0 0 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+}
+.duplicate-review summary {
+  font-size: 14px;
+  font-weight: 600;
+}
+.duplicate-review summary span {
+  margin-left: 8px;
+  color: var(--muted);
+}
+.duplicate-pair {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+}
+.duplicate-pair > small {
+  color: var(--muted);
+}
+.duplicate-pair button {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.duplicate-pair button > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.duplicate-pair b {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.duplicate-pair small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.category-suggestion {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 13px;
+}
+.category-suggestion span {
+  flex: 1;
+  min-width: 180px;
+}
+.category-suggestion small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+@media (max-width: 600px) {
+  .forecast-metrics {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .forecast-metrics > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .forecast-metrics small {
+    margin: 0;
+  }
+  .forecast-toolbar,
+  .forecast-assumptions {
+    grid-template-columns: 1fr;
+  }
+  .duplicate-pair button {
+    flex-wrap: wrap;
+  }
+  .duplicate-pair button .smart-caption {
+    display: none;
+  }
+}
+
+.cash-forecast.card .card-heading {
+  padding: 0;
+}
+.card > .duplicate-review {
+  margin: 16px 24px 20px;
+}
+@media (max-width: 600px) {
+  .cash-forecast {
+    padding: 18px;
+  }
+  .card > .duplicate-review {
+    margin: 14px 18px;
+  }
+}

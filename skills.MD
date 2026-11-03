@@ -23,7 +23,8 @@ Read [README.md](README.md) for user-visible features, [docs/ARCHITECTURE.md](do
 | Current balances and financial aggregation | `lib/finance.ts`, `app/account-balances.tsx` |
 | Credit card purchases, partial bill settlements | `lib/credit.ts`, `app/credit-bills.tsx` |
 | Loans and principal/interest splits | `lib/loans.ts`, `app/loan-tracker.tsx` |
-| Budgets, reconciliation, forecasts | `lib/planning.ts`, related `app/` components |
+| Duplicate review, category suggestions, cash forecasts | `lib/smart-finance.ts`, `app/duplicate-review.tsx`, `app/category-suggestion.tsx`, `app/cash-forecast.tsx` |
+| Budgets, reconciliation, loan forecasts | `lib/planning.ts`, related `app/` components |
 | Read-only AI financial review | `app/financial-analysis.tsx`, `lib/financial-analysis.ts`, `apps-script/Code.gs` |
 | CSV/AI import preview | `app/statement-import.tsx`, `lib/statement-import.ts`, `lib/document-scanner.ts` |
 | Google identity / verified session | `lib/google-auth.ts`, `lib/google-sheets.ts` |

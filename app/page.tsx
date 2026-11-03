@@ -1,4 +1,8 @@
 "use client";
+import CashForecast from "./cash-forecast";
+import DuplicateReview from "./duplicate-review";
+import CategorySuggestion from "./category-suggestion";
+import { duplicateMatches } from "../lib/smart-finance";
 import ReleaseHistory from "./release-history";
 import HDFCSettings from "./hdfc-settings";
 import HDFCPortfolioView from "./hdfc-portfolio";
@@ -991,20 +995,16 @@ export default function Home() {
         return;
       }
     }
-    if (
-      modal.entity === "transactions" &&
-      !record.id &&
-      !modal.pending &&
-      dataRef.current.transactions.some(
-        (r) =>
-          r.status !== "Deleted" &&
-          r.date === record.date &&
-          r.description === record.description &&
-          Number(r.amount) === record.amount,
-      ) &&
-      !confirm("A matching transaction already exists. Save another?")
-    )
-      return;
+    if (modal.entity === "transactions" && !modal.pending) {
+      const matches = duplicateMatches(record, dataRef.current.transactions);
+      if (
+        matches.length &&
+        !confirm(
+          `${matches[0].reason}: ${matches[0].record.description} (${matches[0].record.date}). This may already be recorded. Save this transaction anyway?`,
+        )
+      )
+        return;
+    }
     setModal((current) =>
       current?.op === modal.op ? { ...current, pending: record } : current,
     );
@@ -2563,6 +2563,14 @@ export default function Home() {
                   }}
                 />
               )}
+              {page === "Income & Cash Flow" && (
+                <CashForecast
+                  key={person}
+                  accounts={visibleAccounts}
+                  rows={data.transactions}
+                  stale={stale}
+                />
+              )}
               {page === "Transactions" && (
                 <section className="card">
                   <div className="card-heading">
@@ -2597,6 +2605,13 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
+                  {!deleted && (
+                    <DuplicateReview
+                      rows={active}
+                      accounts={data.accounts}
+                      onReview={(record) => open("transactions", record)}
+                    />
+                  )}
                   <div className="transaction-toolbar">
                     <input
                       aria-label="Search transactions"
@@ -3667,6 +3682,19 @@ export default function Home() {
                       value={modal.record.description}
                       required
                       list="merchants"
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setModal((current) =>
+                          current
+                            ? {
+                                ...current,
+                                record: {
+                                  ...current.record,
+                                  description: event.target.value,
+                                },
+                              }
+                            : current,
+                        )
+                      }
                     />
                     <datalist id="merchants">
                       {Array.from(
@@ -3717,6 +3745,16 @@ export default function Home() {
                       label="Expense tag"
                       name="tagId"
                       value={modal.record.tagId}
+                      onChange={(tagId) =>
+                        setModal((current) =>
+                          current
+                            ? {
+                                ...current,
+                                record: { ...current.record, tagId },
+                              }
+                            : current,
+                        )
+                      }
                       options={data.tags
                         .filter(
                           (t) =>
@@ -3725,6 +3763,23 @@ export default function Home() {
                         )
                         .map((t) => ({ value: t.id, label: t.name }))}
                       required
+                    />
+
+                    <CategorySuggestion
+                      row={modal.record}
+                      history={data.transactions}
+                      tags={data.tags}
+                      disabled={saving || !!modal.pending}
+                      onApply={(tagId) =>
+                        setModal((current) =>
+                          current
+                            ? {
+                                ...current,
+                                record: { ...current.record, tagId },
+                              }
+                            : current,
+                        )
+                      }
                     />
 
                     {!(
